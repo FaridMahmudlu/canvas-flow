@@ -40,10 +40,10 @@ export function SemesterSelector({
         </div>
         <div>
           <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
-            Semestr Seçimi / Semester
+            Academic Term
           </h3>
           <p className="text-xs text-[var(--color-text-tertiary)]">
-            Bütün statistika və tapşırıqlar seçilən semestrə uyğunlaşır
+            Filter all statistics, deadlines, and course tasks by semester
           </p>
         </div>
       </div>
@@ -72,7 +72,7 @@ export function SemesterSelector({
                       : 'bg-[var(--color-primary-bg)] text-[var(--color-primary)] border border-[var(--color-primary-border)]'
                   }`}
                 >
-                  Cari
+                  Current
                 </span>
               )}
               {typeof sem.courseCount === 'number' && (
@@ -83,7 +83,7 @@ export function SemesterSelector({
                       : 'bg-[var(--color-surface)] text-[var(--color-text-tertiary)] border border-[var(--color-border)]'
                   }`}
                 >
-                  {sem.courseCount} fənn
+                  {sem.courseCount} {sem.courseCount === 1 ? 'course' : 'courses'}
                 </span>
               )}
             </button>

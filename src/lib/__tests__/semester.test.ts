@@ -21,11 +21,10 @@ describe('Semester Utilities', () => {
     );
   });
 
-  test('formats semester labels cleanly in English and Azerbaijani', () => {
-    assert.equal(formatSemesterLabel('2026/27/1', 'en'), '2026/27 Autumn');
-    assert.equal(formatSemesterLabel('2025/26/2', 'en'), '2025/26 Spring');
-    assert.equal(formatSemesterLabel('2026/27/1', 'az'), '2026/27 Payız');
-    assert.equal(formatSemesterLabel('all', 'az'), 'Bütün Semestrlər');
+  test('formats semester labels cleanly in English', () => {
+    assert.equal(formatSemesterLabel('2026/27/1'), '2026/27 Autumn');
+    assert.equal(formatSemesterLabel('2025/26/2'), '2025/26 Spring');
+    assert.equal(formatSemesterLabel('all'), 'All Semesters');
   });
 
   test('sorts semesters chronologically with latest first', () => {

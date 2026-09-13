@@ -226,6 +226,10 @@ export default function DashboardPage() {
     new Map(tasks.map((t) => [t.courseId, { id: t.courseId, name: t.courseName }])).values(),
   );
 
+  const activeSemester = semesters.find((s) => s.id === selectedSemester);
+  const greetingSemesterLabel =
+    selectedSemester !== 'all' ? activeSemester?.label || selectedSemester : undefined;
+
   return (
     <div className="flex min-h-screen bg-[var(--color-bg)]">
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} activePage="dashboard" />
@@ -238,7 +242,7 @@ export default function DashboardPage() {
         />
 
         <div className="max-w-6xl mx-auto px-6 py-8">
-          <Greeting semesterLabel={selectedSemester !== 'all' ? selectedSemester : undefined} />
+          <Greeting semesterLabel={greetingSemesterLabel} />
 
           <SemesterSelector
             semesters={semesters}

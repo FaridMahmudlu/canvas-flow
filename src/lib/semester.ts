@@ -40,25 +40,18 @@ export function extractSemester(code?: string | null, name?: string | null): str
 }
 
 /**
- * Formats a raw semester string into a human-friendly label.
+ * Formats a raw semester string into a human-friendly label in English.
  * E.g. "2026/27/1" -> "2026/27 Autumn", "2025/26/2" -> "2025/26 Spring"
  */
-export function formatSemesterLabel(semester: string, locale: 'en' | 'az' = 'en'): string {
+export function formatSemesterLabel(semester: string): string {
   if (semester === 'all') {
-    return locale === 'az' ? 'Bütün Semestrlər' : 'All Semesters';
+    return 'All Semesters';
   }
 
   const parts = semester.split('/');
   if (parts.length === 3) {
     const termNum = parts[2];
-    let termName = `Term ${termNum}`;
-
-    if (locale === 'az') {
-      termName = termNum === '1' ? 'Payız' : termNum === '2' ? 'Yaz' : `${termNum}-ci semestr`;
-    } else {
-      termName = termNum === '1' ? 'Autumn' : termNum === '2' ? 'Spring' : `Term ${termNum}`;
-    }
-
+    const termName = termNum === '1' ? 'Autumn' : termNum === '2' ? 'Spring' : `Term ${termNum}`;
     return `${parts[0]}/${parts[1]} ${termName}`;
   }
 
