@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { syncAll } from '@/lib/sync/engine';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 function isAuthorized(request: NextRequest): boolean {
   const cronSecret = process.env.CRON_SECRET;

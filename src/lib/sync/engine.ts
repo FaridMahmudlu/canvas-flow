@@ -33,12 +33,12 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
   let newTasks = 0;
   let updatedTasks = 0;
 
-  // 1. Concurrency Lock: check for a running sync started in the last 10 minutes
-  const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+  // 1. Concurrency Lock: check for a running sync started in the last 2 minutes
+  const lockExpiryThreshold = new Date(Date.now() - 2 * 60 * 1000);
   const activeRunningSync = await prisma.syncRun.findFirst({
     where: {
       status: 'running',
-      startedAt: { gte: tenMinutesAgo },
+      startedAt: { gte: lockExpiryThreshold },
     },
     orderBy: { startedAt: 'desc' },
   });
@@ -60,11 +60,11 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
     };
   }
 
-  // Mark any stale sync runs (>10 minutes) as failed
+  // Mark any stale sync runs (>2 minutes) as failed
   await prisma.syncRun.updateMany({
     where: {
       status: 'running',
-      startedAt: { lt: tenMinutesAgo },
+      startedAt: { lt: lockExpiryThreshold },
     },
     data: {
       status: 'failed',
