@@ -1,16 +1,74 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { formatSemesterLabel, sortSemesters } from '@/lib/semester';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/courses — Returns synced courses with task counts.
+ * GET /api/courses — Returns synced courses with task counts, optionally filtered by semester.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = request.nextUrl;
+    const semester = searchParams.get('semester');
+
+    // Build where clause
+    const where: Record<string, unknown> = {};
+    if (semester && semester !== 'all' && typeof semester === 'string') {
+      const cleanSemester = semester.slice(0, 30).trim();
+      if (cleanSemester) {
+        where.semester = cleanSemester;
+      }
+    }
+
     const now = new Date();
 
+    // Fetch all distinct semesters with course and task counts for metadata
+    const allCoursesForMeta = await prisma.course.findMany({
+      select: {
+        id: true,
+        semester: true,
+        _count: { select: { tasks: true } },
+      },
+    });
+
+    const semesterMap = new Map<string, { courseCount: number; taskCount: number }>();
+    let totalCourses = 0;
+    let totalTasks = 0;
+
+    for (const c of allCoursesForMeta) {
+      totalCourses++;
+      totalTasks += c._count.tasks;
+      if (c.semester) {
+        const existing = semesterMap.get(c.semester) || { courseCount: 0, taskCount: 0 };
+        existing.courseCount++;
+        existing.taskCount += c._count.tasks;
+        semesterMap.set(c.semester, existing);
+      }
+    }
+
+    const sortedSemesterKeys = sortSemesters(Array.from(semesterMap.keys()));
+    const availableSemesters = [
+      {
+        id: 'all',
+        label: 'All Semesters',
+        courseCount: totalCourses,
+        taskCount: totalTasks,
+      },
+      ...sortedSemesterKeys.map((sem, idx) => {
+        const stats = semesterMap.get(sem)!;
+        return {
+          id: sem,
+          label: formatSemesterLabel(sem),
+          courseCount: stats.courseCount,
+          taskCount: stats.taskCount,
+          isCurrent: idx === 0, // Latest semester
+        };
+      }),
+    ];
+
     const courses = await prisma.course.findMany({
+      where,
       include: {
         tasks: {
           select: {
@@ -25,24 +83,25 @@ export async function GET() {
       orderBy: { name: 'asc' },
     });
 
-interface CourseTaskSummary {
-  id: string;
-  dueAt: Date | null;
-  isSubmitted: boolean;
-  isLocked: boolean;
-  submissionState: string | null;
-}
+    interface CourseTaskSummary {
+      id: string;
+      dueAt: Date | null;
+      isSubmitted: boolean;
+      isLocked: boolean;
+      submissionState: string | null;
+    }
 
-interface CourseWithTasks {
-  id: string;
-  canvasCourseId: number;
-  name: string;
-  code: string | null;
-  workflowState: string;
-  color: string | null;
-  lastSyncedAt: Date | null;
-  tasks: CourseTaskSummary[];
-}
+    interface CourseWithTasks {
+      id: string;
+      canvasCourseId: number;
+      name: string;
+      code: string | null;
+      semester: string | null;
+      workflowState: string;
+      color: string | null;
+      lastSyncedAt: Date | null;
+      tasks: CourseTaskSummary[];
+    }
 
     const enriched = (courses as unknown as CourseWithTasks[]).map((course) => {
       const pending = course.tasks.filter(
@@ -74,6 +133,7 @@ interface CourseWithTasks {
         canvasCourseId: course.canvasCourseId,
         name: course.name,
         code: course.code,
+        semester: course.semester,
         workflowState: course.workflowState,
         color: course.color,
         lastSyncedAt: course.lastSyncedAt?.toISOString() ?? null,
@@ -88,7 +148,7 @@ interface CourseWithTasks {
     });
 
     return NextResponse.json(
-      { courses: enriched },
+      { courses: enriched, availableSemesters },
       {
         headers: {
           'Cache-Control': 'private, no-cache, no-store, must-revalidate',

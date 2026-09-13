@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { syncAll } from '@/lib/sync/engine';
 
+import crypto from 'crypto';
+
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
+
+function safeCompare(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 function isAuthorized(request: NextRequest): boolean {
   const cronSecret = process.env.CRON_SECRET;
@@ -11,14 +20,14 @@ function isAuthorized(request: NextRequest): boolean {
   // In production, CRON_SECRET is strictly mandatory
   if (isProduction) {
     if (!cronSecret) return false;
-    const authHeader = request.headers.get('authorization');
-    return authHeader === `Bearer ${cronSecret}`;
+    const authHeader = request.headers.get('authorization') || '';
+    return safeCompare(authHeader, `Bearer ${cronSecret}`);
   }
 
   // In local development, allow if secret is not set
   if (!cronSecret) return true;
-  const authHeader = request.headers.get('authorization');
-  return authHeader === `Bearer ${cronSecret}`;
+  const authHeader = request.headers.get('authorization') || '';
+  return safeCompare(authHeader, `Bearer ${cronSecret}`);
 }
 
 /**

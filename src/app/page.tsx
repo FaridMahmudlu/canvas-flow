@@ -5,10 +5,12 @@ import { Sidebar } from '@/components/layout/sidebar';
 import { Header } from '@/components/layout/header';
 import { Greeting } from '@/components/dashboard/greeting';
 import { StatsRow } from '@/components/dashboard/stats-row';
+import { SemesterSelector } from '@/components/dashboard/semester-selector';
 import { TaskSection } from '@/components/dashboard/task-section';
 import { TaskFilters } from '@/components/tasks/task-filters';
 import { TaskDetailDrawer } from '@/components/tasks/task-detail-drawer';
 import { EmptyState } from '@/components/ui/empty-state';
+import type { SemesterOption } from '@/lib/semester';
 
 export interface TaskData {
   id: string;
@@ -78,12 +80,56 @@ export default function DashboardPage() {
   const [courseFilter, setCourseFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [semesters, setSemesters] = useState<SemesterOption[]>([]);
+  const [selectedSemester, setSelectedSemester] = useState<string>('2026/27/1');
+
+  // Load saved semester preference
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('canvasflow_selected_semester');
+      if (saved) {
+        setSelectedSemester(saved);
+      }
+    }
+  }, []);
+
+  const handleSemesterChange = (newSemester: string) => {
+    setSelectedSemester(newSemester);
+    setCourseFilter('all');
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('canvasflow_selected_semester', newSemester);
+    }
+  };
+
+  const fetchSemesters = useCallback(async () => {
+    try {
+      const res = await fetch('/api/courses');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.availableSemesters && Array.isArray(data.availableSemesters)) {
+          setSemesters(data.availableSemesters);
+          // If no semester is saved, pick the active/current one
+          if (typeof window !== 'undefined' && !localStorage.getItem('canvasflow_selected_semester')) {
+            const current = data.availableSemesters.find((s: SemesterOption) => s.isCurrent);
+            if (current) {
+              setSelectedSemester(current.id);
+            }
+          }
+        }
+      }
+    } catch {
+      // Silent fail
+    }
+  }, []);
 
   const fetchTasks = useCallback(async () => {
     try {
       const params = new URLSearchParams();
       if (searchQuery) params.set('search', searchQuery);
       if (courseFilter !== 'all') params.set('courseId', courseFilter);
+      if (selectedSemester && selectedSemester !== 'all') {
+        params.set('semester', selectedSemester);
+      }
 
       const res = await fetch(`/api/tasks?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch tasks');
@@ -96,7 +142,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, courseFilter]);
+  }, [searchQuery, courseFilter, selectedSemester]);
 
   const fetchSyncStatus = useCallback(async () => {
     try {
@@ -120,7 +166,7 @@ export default function DashboardPage() {
       const result = await res.json();
       if (result.success) {
         setLastSynced(new Date().toISOString());
-        await fetchTasks();
+        await Promise.all([fetchTasks(), fetchSemesters()]);
       } else {
         setError(result.error || 'Sync failed');
       }
@@ -129,12 +175,13 @@ export default function DashboardPage() {
     } finally {
       setSyncing(false);
     }
-  }, [fetchTasks]);
+  }, [fetchTasks, fetchSemesters]);
 
   useEffect(() => {
     fetchTasks();
+    fetchSemesters();
     fetchSyncStatus();
-  }, [fetchTasks, fetchSyncStatus]);
+  }, [fetchTasks, fetchSemesters, fetchSyncStatus]);
 
   // Filter tasks by status tab
   const filteredTasks =
@@ -191,7 +238,14 @@ export default function DashboardPage() {
         />
 
         <div className="max-w-6xl mx-auto px-6 py-8">
-          <Greeting />
+          <Greeting semesterLabel={selectedSemester !== 'all' ? selectedSemester : undefined} />
+
+          <SemesterSelector
+            semesters={semesters}
+            selectedSemester={selectedSemester}
+            onSelectSemester={handleSemesterChange}
+            isLoading={loading}
+          />
 
           {error && (
             <div className="mb-6 p-4 rounded-lg bg-[var(--color-danger-bg)] border border-[var(--color-danger-border)] text-[var(--color-danger-text)] text-sm">

@@ -9,6 +9,7 @@
 import { prisma } from '../db';
 import { getCourses, getAssignments, getQuizzes, getCurrentUser } from '../canvas/api';
 import { computeTaskStatus, isTaskLocked } from '../tasks/availability';
+import { extractSemester } from '../semester';
 import { logger } from '../logger';
 import type { CanvasAssignment, CanvasQuiz } from '../canvas/types';
 
@@ -195,11 +196,13 @@ async function syncCourses() {
 
   const courses = [];
   for (const cc of canvasCourses) {
+    const semester = extractSemester(cc.course_code, cc.name);
     const course = await prisma.course.upsert({
       where: { canvasCourseId: cc.id },
       update: {
         name: cc.name,
         code: cc.course_code || null,
+        semester,
         workflowState: cc.workflow_state,
         timezone: cc.time_zone || null,
         lastSyncedAt: new Date(),
@@ -208,6 +211,7 @@ async function syncCourses() {
         canvasCourseId: cc.id,
         name: cc.name,
         code: cc.course_code || null,
+        semester,
         workflowState: cc.workflow_state,
         timezone: cc.time_zone || null,
         lastSyncedAt: new Date(),

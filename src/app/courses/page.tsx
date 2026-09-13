@@ -11,6 +11,7 @@ interface CourseItem {
   canvasCourseId: number;
   name: string;
   code: string | null;
+  semester: string | null;
   workflowState: string;
   color: string | null;
   lastSyncedAt: string | null;
@@ -25,6 +26,8 @@ interface CourseItem {
 
 export default function CoursesPage() {
   const [courses, setCourses] = useState<CourseItem[]>([]);
+  const [semesters, setSemesters] = useState<Array<{ id: string; label: string; courseCount?: number }>>([]);
+  const [selectedSemester, setSelectedSemester] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [syncing, setSyncing] = useState(false);
@@ -38,6 +41,9 @@ export default function CoursesPage() {
       if (!res.ok) throw new Error('Failed to fetch courses');
       const data = await res.json();
       setCourses(data.courses || []);
+      if (data.availableSemesters) {
+        setSemesters(data.availableSemesters);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -63,6 +69,9 @@ export default function CoursesPage() {
   };
 
   const filteredCourses = courses.filter((c) => {
+    const matchesSemester = selectedSemester === 'all' || c.semester === selectedSemester;
+    if (!matchesSemester) return false;
+
     const q = search.toLowerCase();
     return c.name.toLowerCase().includes(q) || (c.code && c.code.toLowerCase().includes(q));
   });
@@ -75,7 +84,7 @@ export default function CoursesPage() {
         <Header lastSynced={lastSynced} syncing={syncing} onSync={handleSync} />
 
         <div className="max-w-6xl mx-auto px-6 py-8">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
             <div>
               <h1 className="text-2xl font-bold text-[var(--color-text)]">My Courses</h1>
               <p className="text-sm text-[var(--color-text-secondary)] mt-1">
@@ -93,6 +102,28 @@ export default function CoursesPage() {
               />
             </div>
           </div>
+
+          {/* Semester Filter Tabs */}
+          {semesters.length > 1 && (
+            <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-1">
+              {semesters.map((sem) => (
+                <button
+                  key={sem.id}
+                  onClick={() => setSelectedSemester(sem.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    selectedSemester === sem.id
+                      ? 'bg-[var(--color-primary)] text-white shadow-sm'
+                      : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
+                  }`}
+                >
+                  {sem.label}
+                  {typeof sem.courseCount === 'number' && (
+                    <span className="ml-1.5 opacity-75">({sem.courseCount})</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
 
           {loading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

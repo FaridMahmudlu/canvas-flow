@@ -28,13 +28,27 @@ export async function GET(request: NextRequest) {
     const courseId = searchParams.get('courseId');
     const typeFilter = searchParams.get('type');
     const search = searchParams.get('search');
+    const semester = searchParams.get('semester');
 
-    // Build where clause
+    // Build where clause with input sanitization
     const where: Record<string, unknown> = {};
-    if (courseId) where.courseId = courseId;
-    if (typeFilter) where.sourceType = typeFilter;
-    if (search) {
-      where.title = { contains: search, mode: 'insensitive' };
+    if (courseId && typeof courseId === 'string' && courseId.length <= 64) {
+      where.courseId = courseId;
+    }
+    if (typeFilter && ['assignment', 'quiz', 'event'].includes(typeFilter)) {
+      where.sourceType = typeFilter;
+    }
+    if (search && typeof search === 'string') {
+      const cleanSearch = search.slice(0, 100).trim();
+      if (cleanSearch) {
+        where.title = { contains: cleanSearch, mode: 'insensitive' };
+      }
+    }
+    if (semester && semester !== 'all' && typeof semester === 'string') {
+      const cleanSemester = semester.slice(0, 30).trim();
+      if (cleanSemester) {
+        where.course = { semester: cleanSemester };
+      }
     }
 
     const tasks = await prisma.task.findMany({
@@ -72,6 +86,7 @@ export async function GET(request: NextRequest) {
         id: string;
         name: string;
         code: string | null;
+        semester: string | null;
       };
     }
 
@@ -120,6 +135,7 @@ export async function GET(request: NextRequest) {
         courseId: task.courseId,
         courseName: task.course.name,
         courseCode: task.course.code,
+        semester: task.course.semester,
         title: task.title,
         description: task.description,
         url: task.htmlUrl,
