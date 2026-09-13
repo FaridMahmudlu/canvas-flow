@@ -1,0 +1,162 @@
+// Prisma schema for CanvasFlow
+// PostgreSQL database schema configured for Supabase & Vercel serverless
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── User ──────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  canvasUserId Int      @unique
+  name         String
+  email        String?
+  avatarUrl    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  notificationPreferences NotificationPreference?
+  pushSubscriptions       PushSubscription[]
+}
+
+// ─── Course ────────────────────────────────────────────────────────────
+
+model Course {
+  id             String    @id @default(cuid())
+  canvasCourseId Int       @unique
+  name           String
+  code           String?
+  workflowState  String    @default("available")
+  color          String?
+  timezone       String?
+  lastSyncedAt   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tasks Task[]
+}
+
+// ─── Task ──────────────────────────────────────────────────────────────
+
+model Task {
+  id              String    @id @default(cuid())
+  canvasTaskId    String    @unique
+  courseId         String
+  course           Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  sourceType      String    // "assignment" | "quiz" | "event"
+  title           String
+  description     String?   @db.Text
+  htmlUrl         String?
+  availableAt     DateTime?
+  dueAt           DateTime?
+  lockAt          DateTime?
+  isLocked        Boolean   @default(false)
+  lockExplanation String?
+  pointsPossible  Float?
+  submissionTypes String[]  @default([])
+  published       Boolean   @default(true)
+  status          String    @default("available") // "upcoming" | "available" | "due-soon" | "overdue" | "submitted" | "completed" | "locked"
+
+  // Submission fields
+  isSubmitted     Boolean   @default(false)
+  submittedAt     DateTime?
+  submissionState String?
+  grade           String?
+  score           Float?
+  attempt         Int?
+
+  // Quiz-specific
+  quizTimeLimit      Int?   // minutes
+  quizAllowedAttempts Int?
+
+  // Metadata
+  rawMetadata  Json?
+  lastSyncedAt DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  notifications Notification[]
+
+  @@index([courseId])
+  @@index([dueAt])
+  @@index([availableAt])
+  @@index([status])
+  @@index([sourceType])
+  @@index([isSubmitted])
+}
+
+// ─── Notification ──────────────────────────────────────────────────────
+
+model Notification {
+  id           String   @id @default(cuid())
+  taskId       String
+  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  type         String   // "available" | "24h" | "6h" | "1h" | "overdue" | "new_task" | "changed"
+  scheduledFor DateTime
+  sentAt       DateTime?
+  state        String   @default("pending") // "pending" | "sent" | "failed" | "skipped"
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@unique([taskId, type, scheduledFor])
+  @@index([scheduledFor])
+  @@index([state])
+  @@index([state, scheduledFor])
+  @@index([taskId])
+}
+
+// ─── Notification Preferences ──────────────────────────────────────────
+
+model NotificationPreference {
+  id               String  @id @default(cuid())
+  userId           String  @unique
+  user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskAvailable    Boolean @default(true)
+  before24h        Boolean @default(true)
+  before6h         Boolean @default(true)
+  before1h         Boolean @default(true)
+  overdue          Boolean @default(true)
+  newAssignments   Boolean @default(true)
+  newQuizzes       Boolean @default(true)
+  changedDeadlines Boolean @default(true)
+  quietHoursStart  String? // "22:00"
+  quietHoursEnd    String? // "08:00"
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// ─── Push Subscription ─────────────────────────────────────────────────
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ─── Sync Run ──────────────────────────────────────────────────────────
+
+model SyncRun {
+  id           String    @id @default(cuid())
+  status       String    // "running" | "completed" | "failed"
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
+  coursesCount Int?
+  tasksCount   Int?
+  errorMessage String?
+  triggeredBy  String?   // "manual" | "cron" | "auto"
+
+  @@index([status, startedAt])
+}

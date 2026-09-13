@@ -1,0 +1,43 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { processDueNotifications } from '@/lib/notifications/scheduler';
+
+export const dynamic = 'force-dynamic';
+
+function isAuthorized(request: NextRequest): boolean {
+  const cronSecret = process.env.CRON_SECRET;
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  // In production, CRON_SECRET is strictly mandatory
+  if (isProduction) {
+    if (!cronSecret) return false;
+    const authHeader = request.headers.get('authorization');
+    return authHeader === `Bearer ${cronSecret}`;
+  }
+
+  // In local development, allow if secret is not set
+  if (!cronSecret) return true;
+  const authHeader = request.headers.get('authorization');
+  return authHeader === `Bearer ${cronSecret}`;
+}
+
+/**
+ * POST/GET /api/cron/notifications — Periodic notification dispatcher.
+ * Protected by CRON_SECRET Bearer header.
+ */
+export async function POST(request: NextRequest) {
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ error: 'Unauthorized: invalid or missing CRON_SECRET' }, { status: 401 });
+  }
+
+  const result = await processDueNotifications();
+  return NextResponse.json(result);
+}
+
+export async function GET(request: NextRequest) {
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ error: 'Unauthorized: invalid or missing CRON_SECRET' }, { status: 401 });
+  }
+
+  const result = await processDueNotifications();
+  return NextResponse.json(result);
+}

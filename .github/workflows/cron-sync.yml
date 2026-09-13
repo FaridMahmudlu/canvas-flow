@@ -1,0 +1,33 @@
+name: Automated Canvas Sync & Notification Dispatcher
+
+on:
+  schedule:
+    # Runs every 15 minutes 24/7 (UTC)
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  sync:
+    name: Sync Canvas & Dispatch Reminders
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Canvas Synchronization
+        run: |
+          if [ -z "${{ secrets.APP_URL }}" ] || [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "Secrets APP_URL or CRON_SECRET are not set in GitHub repository secrets. Skipping."
+            exit 0
+          fi
+          echo "Triggering Canvas sync..."
+          curl -f -s -S -X POST "${{ secrets.APP_URL }}/api/cron/sync" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json"
+
+      - name: Trigger Notification Reminder Dispatcher
+        run: |
+          if [ -z "${{ secrets.APP_URL }}" ] || [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            exit 0
+          fi
+          echo "Triggering notification dispatcher..."
+          curl -f -s -S -X POST "${{ secrets.APP_URL }}/api/cron/notifications" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json"
