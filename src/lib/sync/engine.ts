@@ -152,13 +152,13 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
     // 3. Sync user profile
     await syncUser();
 
-    // 4. Sync courses (in fast adaptive/cron cycles, only poll current active semester courses)
-    const isFullSync = triggeredBy === 'manual' || triggeredBy === 'initial';
-    const courses = await syncCourses(!isFullSync);
+    // 4. Sync courses: Focus on current active semester courses (15 courses) for rapid ~60s cycles
+    // This cuts Canvas requests in half and easily fits within serverless execution bounds.
+    const courses = await syncCourses(true);
     coursesCount = courses.length;
 
-    // 5. Sync assignments and quizzes with controlled concurrency (batches of 3 courses)
-    const BATCH_SIZE = 3;
+    // 5. Sync assignments and quizzes with controlled concurrency (batches of 4 courses)
+    const BATCH_SIZE = 4;
     for (let i = 0; i < courses.length; i += BATCH_SIZE) {
       const batch = courses.slice(i, i + BATCH_SIZE);
       const results = await Promise.all(
@@ -453,7 +453,7 @@ async function syncCourseContent(
       };
     }
 
-    if (!matchingAssignment && !quizSubmission) {
+    if (!matchingAssignment && !quizSubmission && quiz.published && (quiz.points_possible || 0) > 0) {
       try {
         const directSubmissions = await getQuizSubmissions(canvasCourseId, quiz.id);
         if (directSubmissions.length > 0) {
