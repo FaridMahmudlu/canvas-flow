@@ -15,22 +15,55 @@ datasource db {
 
 model User {
   id           String   @id @default(cuid())
-  canvasUserId Int      @unique
+  email        String?  @unique
   name         String
-  email        String?
+  passwordHash String?
   avatarUrl    String?
+  role         String   @default("student")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  canvasConnections       CanvasConnection[]
+  courses                 Course[]
+  tasks                   Task[]
+  notifications           Notification[]
   notificationPreferences NotificationPreference?
   pushSubscriptions       PushSubscription[]
+  syncRuns                SyncRun[]
+  syncStates              SyncState[]
+
+  @@index([email])
+}
+
+// ─── Canvas Connection (Multi-Institution Support) ─────────────────────
+
+model CanvasConnection {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instanceUrl    String    // e.g. "https://canvas.elte.hu"
+  instanceName   String?   // e.g. "ELTE Canvas"
+  encryptedToken String    // AES-256-GCM encrypted
+  tokenIv        String    // Initialization vector
+  tokenTag       String?   // Auth tag
+  canvasUserId   Int?      // Canvas user ID from /users/self
+  canvasUserName String?   // Canvas display name
+  isActive       Boolean   @default(true)
+  lastVerifiedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([userId, instanceUrl])
+  @@index([userId])
 }
 
 // ─── Course ────────────────────────────────────────────────────────────
 
 model Course {
   id             String    @id @default(cuid())
-  canvasCourseId Int       @unique
+  userId         String?
+  user           User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  canvasCourseId Int
   name           String
   code           String?
   semester       String?
@@ -43,6 +76,8 @@ model Course {
 
   tasks Task[]
 
+  @@unique([userId, canvasCourseId])
+  @@index([userId])
   @@index([semester])
 }
 
@@ -50,9 +85,11 @@ model Course {
 
 model Task {
   id              String    @id @default(cuid())
-  canvasTaskId    String    @unique
-  courseId         String
-  course           Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  userId          String?
+  user            User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  canvasTaskId    String
+  courseId        String
+  course          Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
   sourceType      String    // "assignment" | "quiz" | "event"
   title           String
   description     String?   @db.Text
@@ -76,7 +113,7 @@ model Task {
   attempt         Int?
 
   // Quiz-specific
-  quizTimeLimit      Int?   // minutes
+  quizTimeLimit       Int?   // minutes
   quizAllowedAttempts Int?
 
   // Metadata
@@ -87,6 +124,8 @@ model Task {
 
   notifications Notification[]
 
+  @@unique([userId, canvasTaskId])
+  @@index([userId])
   @@index([courseId])
   @@index([dueAt])
   @@index([availableAt])
@@ -98,18 +137,21 @@ model Task {
 // ─── Notification ──────────────────────────────────────────────────────
 
 model Notification {
-  id           String   @id @default(cuid())
-  taskId       String
-  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  type         String   // "available" | "24h" | "6h" | "1h" | "overdue" | "new_task" | "changed"
-  scheduledFor DateTime
-  sentAt       DateTime?
-  state          String   @default("pending") // "pending" | "sent" | "failed" | "skipped"
+  id             String    @id @default(cuid())
+  userId         String?
+  user           User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId         String
+  task           Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  type           String    // "available" | "24h" | "6h" | "1h" | "overdue" | "new_task" | "changed"
+  scheduledFor   DateTime
+  sentAt         DateTime?
+  state          String    @default("pending") // "pending" | "sent" | "failed" | "skipped"
   errorMessage   String?
-  idempotencyKey String?  @unique
-  createdAt      DateTime @default(now())
+  idempotencyKey String?   @unique
+  createdAt      DateTime  @default(now())
 
   @@unique([taskId, type, scheduledFor])
+  @@index([userId])
   @@index([scheduledFor])
   @@index([state])
   @@index([state, scheduledFor])
@@ -119,19 +161,19 @@ model Notification {
 // ─── Notification Preferences ──────────────────────────────────────────
 
 model NotificationPreference {
-  id               String  @id @default(cuid())
-  userId           String  @unique
-  user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  taskAvailable    Boolean @default(true)
-  before24h        Boolean @default(true)
-  before6h         Boolean @default(true)
-  before1h         Boolean @default(true)
-  overdue          Boolean @default(true)
-  newAssignments   Boolean @default(true)
-  newQuizzes       Boolean @default(true)
-  changedDeadlines Boolean @default(true)
-  quietHoursStart  String? // "22:00"
-  quietHoursEnd    String? // "08:00"
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskAvailable    Boolean  @default(true)
+  before24h        Boolean  @default(true)
+  before6h         Boolean  @default(true)
+  before1h         Boolean  @default(true)
+  overdue          Boolean  @default(true)
+  newAssignments   Boolean  @default(true)
+  newQuizzes       Boolean  @default(true)
+  changedDeadlines Boolean  @default(true)
+  quietHoursStart  String?  // "22:00"
+  quietHoursEnd    String?  // "08:00"
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 }
@@ -154,6 +196,8 @@ model PushSubscription {
 
 model SyncRun {
   id                     String    @id @default(cuid())
+  userId                 String?
+  user                   User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
   status                 String    // "running" | "completed" | "failed" | "rate_limited" | "skipped"
   startedAt              DateTime  @default(now())
   completedAt            DateTime?
@@ -174,13 +218,16 @@ model SyncRun {
   errorType              String?   // "429" | "401" | "403" | "timeout" | "network"
   triggeredBy            String?   // "manual" | "cron" | "auto" | "adaptive"
 
+  @@index([userId])
   @@index([status, startedAt])
 }
 
-// ─── Sync State (Adaptive Controller Singleton) ────────────────────────
+// ─── Sync State (Adaptive Controller) ──────────────────────────────────
 
 model SyncState {
   id                      String    @id @default("global")
+  userId                  String?   @unique
+  user                    User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
   targetIntervalSeconds   Int       @default(60)
   currentIntervalSeconds  Int       @default(60)
   consecutiveSuccesses    Int       @default(0)

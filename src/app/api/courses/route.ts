@@ -1,19 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { formatSemesterLabel, sortSemesters } from '@/lib/semester';
+import { getCurrentUser } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
+async function getTargetUserId(): Promise<string | null> {
+  const sessionUser = await getCurrentUser();
+  if (sessionUser?.id) return sessionUser.id;
+
+  const firstUser = await prisma.user.findFirst({
+    orderBy: { createdAt: 'asc' },
+  });
+
+  return firstUser?.id || null;
+}
+
 /**
- * GET /api/courses — Returns synced courses with task counts, optionally filtered by semester.
+ * GET /api/courses — Returns synced courses with task counts, scoped to user, optionally filtered by semester.
  */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const semester = searchParams.get('semester');
 
+    const targetUserId = await getTargetUserId();
+
     // Build where clause
     const where: Record<string, unknown> = {};
+    if (targetUserId) {
+      where.userId = targetUserId;
+    }
+
     if (semester && semester !== 'all' && typeof semester === 'string') {
       const cleanSemester = semester.slice(0, 30).trim();
       if (cleanSemester) {
@@ -23,8 +41,9 @@ export async function GET(request: NextRequest) {
 
     const now = new Date();
 
-    // Fetch all distinct semesters with course and task counts for metadata
+    // Fetch distinct semesters for this user
     const allCoursesForMeta = await prisma.course.findMany({
+      where: targetUserId ? { userId: targetUserId } : undefined,
       select: {
         id: true,
         semester: true,
@@ -62,7 +81,7 @@ export async function GET(request: NextRequest) {
           label: formatSemesterLabel(sem),
           courseCount: stats.courseCount,
           taskCount: stats.taskCount,
-          isCurrent: idx === 0, // Latest semester
+          isCurrent: idx === 0,
         };
       }),
     ];
@@ -121,7 +140,6 @@ export async function GET(request: NextRequest) {
         return t.dueAt.getTime() >= now.getTime() && t.dueAt.getTime() <= weekFromNow.getTime();
       }).length;
 
-      // Next deadline
       const upcomingDue = course.tasks
         .filter((t) => !t.isSubmitted && t.dueAt && t.dueAt.getTime() > now.getTime())
         .sort((a, b) => (a.dueAt!.getTime() - b.dueAt!.getTime()));

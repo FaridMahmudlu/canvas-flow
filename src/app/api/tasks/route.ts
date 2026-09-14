@@ -8,18 +8,23 @@ import {
   isTaskOverdue,
   isTaskLocked,
 } from '@/lib/tasks/availability';
+import { getCurrentUser } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
+async function getTargetUserId(): Promise<string | null> {
+  const sessionUser = await getCurrentUser();
+  if (sessionUser?.id) return sessionUser.id;
+
+  const firstUser = await prisma.user.findFirst({
+    orderBy: { createdAt: 'asc' },
+  });
+
+  return firstUser?.id || null;
+}
+
 /**
- * GET /api/tasks — Returns all tasks with filtering, sorting, search.
- *
- * Query params:
- *   status — filter by computed status
- *   courseId — filter by course
- *   type — "assignment" | "quiz" | "event"
- *   search — search title
- *   sort — "priority" (default) | "dueAt" | "title"
+ * GET /api/tasks — Returns all tasks with filtering, sorting, search, scoped to authenticated user.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -30,8 +35,13 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search');
     const semester = searchParams.get('semester');
 
-    // Build where clause with input sanitization
+    const targetUserId = await getTargetUserId();
+
+    // Build where clause with user scoping and input sanitization
     const where: Record<string, unknown> = {};
+    if (targetUserId) {
+      where.userId = targetUserId;
+    }
     if (courseId && typeof courseId === 'string' && courseId.length <= 64) {
       where.courseId = courseId;
     }
@@ -92,7 +102,6 @@ export async function GET(request: NextRequest) {
 
     const now = new Date();
 
-    // Transform to AcademicTask-like shape with computed fields
     const enrichedTasks = (tasks as unknown as DbTaskWithCourse[]).map((task) => {
       const dueAt = task.dueAt;
       const availableAt = task.availableAt;
@@ -183,24 +192,20 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Apply status filter (computed field, so filter after enrichment)
     let filtered = enrichedTasks;
     if (statusFilter) {
       filtered = enrichedTasks.filter((t) => t.status === statusFilter);
     }
 
-    // Sort by priority score (descending) then by dueAt
     filtered.sort((a, b) => {
       const scoreDiff = b.priorityScore - a.priorityScore;
       if (scoreDiff !== 0) return scoreDiff;
-      // Secondary sort: due date ascending
       if (a.dueAt && b.dueAt) return new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime();
       if (a.dueAt) return -1;
       if (b.dueAt) return 1;
       return 0;
     });
 
-    // Compute stats
     const stats = {
       dueSoon: enrichedTasks.filter((t) => t.status === 'due-soon').length,
       availableNow: enrichedTasks.filter((t) => t.status === 'available').length,

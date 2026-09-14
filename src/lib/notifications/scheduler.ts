@@ -2,12 +2,13 @@
  * Notification Scheduler & Processor
  *
  * Checks upcoming deadlines, newly unlocked tasks, and overdue tasks.
- * Dispatches browser push notifications according to user preferences and Europe/Budapest quiet hours.
+ * Dispatches browser push notifications according to user preferences and quiet hours.
+ * Fully multi-tenant and user-scoped.
  */
 
 import { toZonedTime } from 'date-fns-tz';
 import { prisma } from '@/lib/db';
-import { broadcastPushNotification } from './push';
+import { sendPushToUser, broadcastPushNotification } from './push';
 import { logger } from '../logger';
 
 export interface SchedulerResult {
@@ -18,7 +19,7 @@ export interface SchedulerResult {
 }
 
 /**
- * Checks if current time in Europe/Budapest is within user's configured quiet hours.
+ * Checks if current time is within user's configured quiet hours.
  */
 function isQuietHours(now: Date, startStr?: string | null, endStr?: string | null): boolean {
   if (!startStr || !endStr) return false;
@@ -43,10 +44,13 @@ function isQuietHours(now: Date, startStr?: string | null, endStr?: string | nul
 /**
  * Scan database tasks and schedule any missing notification reminders.
  */
-export async function scheduleReminders(now: Date = new Date()): Promise<number> {
+export async function scheduleReminders(now: Date = new Date(), userId?: string): Promise<number> {
   let scheduledCount = 0;
 
-  const pref = await prisma.notificationPreference.findFirst();
+  const pref = await prisma.notificationPreference.findFirst({
+    where: userId ? { userId } : undefined,
+  });
+
   const config = {
     before24h: pref?.before24h ?? true,
     before6h: pref?.before6h ?? true,
@@ -55,9 +59,12 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
     available: pref?.taskAvailable ?? true,
   };
 
-  // 1. Pre-load existing idempotency keys into memory in one fast query
+  // 1. Pre-load existing idempotency keys into memory
   const existingRecords = await prisma.notification.findMany({
-    where: { idempotencyKey: { not: null } },
+    where: {
+      idempotencyKey: { not: null },
+      ...(userId ? { userId } : {}),
+    },
     select: { idempotencyKey: true },
   });
   const existingKeys = new Set<string>();
@@ -68,6 +75,7 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
   }
 
   const toCreate: Array<{
+    userId?: string | null;
     taskId: string;
     type: string;
     scheduledFor: Date;
@@ -81,9 +89,11 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
       isSubmitted: false,
       published: true,
       dueAt: { not: null },
+      ...(userId ? { userId } : {}),
     },
     select: {
       id: true,
+      userId: true,
       dueAt: true,
     },
   });
@@ -91,6 +101,7 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
   for (const task of activeTasks) {
     if (!task.dueAt) continue;
     const dueTime = task.dueAt.getTime();
+    const taskOwnerId = task.userId || userId || null;
 
     // 24 hours before
     if (config.before24h) {
@@ -99,6 +110,7 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
         const key = `${task.id}_24h_${dueTime}`;
         if (!existingKeys.has(key)) {
           toCreate.push({
+            userId: taskOwnerId,
             taskId: task.id,
             type: '24h',
             scheduledFor: time24h,
@@ -117,6 +129,7 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
         const key = `${task.id}_6h_${dueTime}`;
         if (!existingKeys.has(key)) {
           toCreate.push({
+            userId: taskOwnerId,
             taskId: task.id,
             type: '6h',
             scheduledFor: time6h,
@@ -135,6 +148,7 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
         const key = `${task.id}_1h_${dueTime}`;
         if (!existingKeys.has(key)) {
           toCreate.push({
+            userId: taskOwnerId,
             taskId: task.id,
             type: '1h',
             scheduledFor: time1h,
@@ -152,6 +166,7 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
       const key = `${task.id}_overdue_${dueTime}`;
       if (!existingKeys.has(key)) {
         toCreate.push({
+          userId: taskOwnerId,
           taskId: task.id,
           type: 'overdue',
           scheduledFor: task.dueAt,
@@ -173,9 +188,11 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
           lte: now,
           gte: cutoff48h,
         },
+        ...(userId ? { userId } : {}),
       },
       select: {
         id: true,
+        userId: true,
         availableAt: true,
       },
     });
@@ -185,6 +202,7 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
       const key = `${task.id}_available_${task.availableAt.getTime()}`;
       if (!existingKeys.has(key)) {
         toCreate.push({
+          userId: task.userId || userId || null,
           taskId: task.id,
           type: 'available',
           scheduledFor: task.availableAt,
@@ -212,14 +230,16 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
  * Process due notifications and send Web Push notifications.
  * Respects quiet hours by holding pending notifications until quiet hours end.
  */
-export async function processDueNotifications(now: Date = new Date()): Promise<SchedulerResult> {
-  const scheduled = await scheduleReminders(now);
+export async function processDueNotifications(now: Date = new Date(), userId?: string): Promise<SchedulerResult> {
+  const scheduled = await scheduleReminders(now, userId);
 
-  const pref = await prisma.notificationPreference.findFirst();
+  const pref = await prisma.notificationPreference.findFirst({
+    where: userId ? { userId } : undefined,
+  });
   const inQuiet = isQuietHours(now, pref?.quietHoursStart, pref?.quietHoursEnd);
 
   if (inQuiet) {
-    logger.info('Quiet hours active in Europe/Budapest: holding pending reminders', {
+    logger.info('Quiet hours active: holding pending reminders', {
       quietHoursStart: pref?.quietHoursStart,
       quietHoursEnd: pref?.quietHoursEnd,
     });
@@ -236,6 +256,7 @@ export async function processDueNotifications(now: Date = new Date()): Promise<S
     where: {
       state: 'pending',
       scheduledFor: { lte: now },
+      ...(userId ? { userId } : {}),
     },
     include: {
       task: {
@@ -301,19 +322,34 @@ export async function processDueNotifications(now: Date = new Date()): Promise<S
         break;
     }
 
-    // Direct deep-link to the task page
     const taskDeepLink = `${cleanAppUrl}/tasks/${notif.taskId}`;
 
-    const pushResult = await broadcastPushNotification({
-      title,
-      body,
-      tag: `task-${notif.taskId}-${notif.type}`,
-      data: {
-        taskId: notif.taskId,
-        url: taskDeepLink,
-        courseName: notif.task.course.name,
-      },
-    });
+    const targetUserId = notif.userId || notif.task.userId;
+    let pushResult: { sent: number; failed: number };
+
+    if (targetUserId) {
+      pushResult = await sendPushToUser(targetUserId, {
+        title,
+        body,
+        tag: `task-${notif.taskId}-${notif.type}`,
+        data: {
+          taskId: notif.taskId,
+          url: taskDeepLink,
+          courseName: notif.task.course.name,
+        },
+      });
+    } else {
+      pushResult = await broadcastPushNotification({
+        title,
+        body,
+        tag: `task-${notif.taskId}-${notif.type}`,
+        data: {
+          taskId: notif.taskId,
+          url: taskDeepLink,
+          courseName: notif.task.course.name,
+        },
+      });
+    }
 
     if (pushResult.sent > 0 || pushResult.failed === 0) {
       await prisma.notification.update({

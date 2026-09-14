@@ -1,23 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { getCurrentUser } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
-async function getOrCreatePrimaryUser() {
-  let user = await prisma.user.findFirst({
+async function getTargetUserId(): Promise<string | null> {
+  const sessionUser = await getCurrentUser();
+  if (sessionUser?.id) return sessionUser.id;
+
+  const firstUser = await prisma.user.findFirst({
     orderBy: { createdAt: 'asc' },
   });
 
-  if (!user) {
-    user = await prisma.user.create({
-      data: {
-        canvasUserId: 0,
-        name: 'ELTE Student',
-      },
-    });
-  }
-
-  return user;
+  return firstUser?.id || null;
 }
 
 /**
@@ -36,9 +31,15 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   try {
-    const user = await getOrCreatePrimaryUser();
-    const body = await request.json();
+    const userId = await getTargetUserId();
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized. Please sign in.' },
+        { status: 401 }
+      );
+    }
 
+    const body = await request.json();
     const { endpoint, keys } = body;
 
     if (!endpoint || !keys?.p256dh || !keys?.auth) {
@@ -53,10 +54,10 @@ export async function POST(request: NextRequest) {
       update: {
         p256dh: keys.p256dh,
         auth: keys.auth,
-        userId: user.id,
+        userId,
       },
       create: {
-        userId: user.id,
+        userId,
         endpoint,
         p256dh: keys.p256dh,
         auth: keys.auth,

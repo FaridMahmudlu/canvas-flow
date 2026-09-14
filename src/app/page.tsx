@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Header } from '@/components/layout/header';
 import { MobileNav } from '@/components/layout/mobile-nav';
@@ -84,7 +85,7 @@ export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [semesters, setSemesters] = useState<SemesterOption[]>([]);
-  const [selectedSemester, setSelectedSemester] = useState<string>('2026/27/1');
+  const [selectedSemester, setSelectedSemester] = useState<string>('all');
 
   // Load saved semester preference
   useEffect(() => {
@@ -374,16 +375,28 @@ export default function DashboardPage() {
 
               {tasks.length === 0 && !loading && (
                 <EmptyState
-                  title="No tasks yet"
-                  description="Click 'Sync Now' to fetch your assignments from Canvas."
+                  title="No tasks found"
+                  description={
+                    selectedSemester !== 'all'
+                      ? "No assignments or quizzes found for this semester. Try selecting 'All Semesters' or connect your Canvas account."
+                      : "Connect your Canvas account to synchronize your courses, assignments, and quizzes."
+                  }
                   action={
-                    <button
-                      onClick={handleSync}
-                      disabled={syncing}
-                      className="px-4 py-2 bg-[var(--color-primary)] text-white rounded-lg text-sm font-medium hover:bg-[var(--color-primary-dark)] transition-colors disabled:opacity-50"
-                    >
-                      {syncing ? 'Syncing...' : 'Sync Now'}
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <Link
+                        href="/connect"
+                        className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
+                      >
+                        Connect Canvas LMS
+                      </Link>
+                      <button
+                        onClick={handleSync}
+                        disabled={syncing}
+                        className="px-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] rounded-xl text-xs font-semibold transition disabled:opacity-50 cursor-pointer"
+                      >
+                        {syncing ? 'Syncing...' : 'Sync Now'}
+                      </button>
+                    </div>
                   }
                 />
               )}

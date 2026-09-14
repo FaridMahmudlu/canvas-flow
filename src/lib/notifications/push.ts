@@ -2,6 +2,7 @@
  * Web Push Notification Delivery
  *
  * Sends push notifications to subscribed browsers via Web Push protocol.
+ * Supports sending directly to a specific user's subscriptions or broadcast.
  */
 
 import webpush from 'web-push';
@@ -10,7 +11,7 @@ import { prisma } from '@/lib/db';
 // Initialize VAPID details if keys are present
 const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY;
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
-const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:student@canvas-flow.elte';
+const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:support@canvasflow.app';
 
 if (vapidPublicKey && vapidPrivateKey) {
   try {
@@ -52,7 +53,7 @@ export async function sendPushNotification(
   if (!vapidPublicKey || !vapidPrivateKey) {
     return {
       success: false,
-      error: 'VAPID keys not configured. Generate keys and set in .env.local',
+      error: 'VAPID keys not configured. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY in environment variables.',
     };
   }
 
@@ -86,6 +87,32 @@ export async function sendPushNotification(
       statusCode: webPushError.statusCode,
     };
   }
+}
+
+/**
+ * Send push notification to all subscriptions of a specific user.
+ */
+export async function sendPushToUser(
+  userId: string,
+  payload: PushNotificationPayload,
+): Promise<{ sent: number; failed: number }> {
+  const subscriptions = await prisma.pushSubscription.findMany({
+    where: { userId },
+  });
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const sub of subscriptions) {
+    const result = await sendPushNotification(sub, payload);
+    if (result.success) {
+      sent++;
+    } else {
+      failed++;
+    }
+  }
+
+  return { sent, failed };
 }
 
 /**

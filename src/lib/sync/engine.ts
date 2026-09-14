@@ -1,18 +1,16 @@
 /**
- * Canvas Sync Engine — Near-Real-Time Adaptive Synchronization
+ * CanvasFlow Near-Real-Time Multi-Tenant Synchronization Engine
  *
- * Orchestrates fetching data from Canvas REST API with:
- * 1. Target interval ~60 seconds
- * 2. Rate-limit telemetry tracking (X-Rate-Limit-Remaining, X-Request-Cost, HTTP status)
- * 3. Adaptive backoff on HTTP 429 and rate pressure
- * 4. Concurrency control & distributed lease locks (prevents overlapping syncs)
- * 5. Smart change detection (new tasks, date changes, availability, submissions)
- * 6. Detection latency measurement (Canvas event timestamp -> detection timestamp)
- * 7. Event-driven immediate Web Push notification dispatch (zero extra scheduler delay)
- * 8. Controlled concurrency (2-4 parallel course requests, only current active semester courses)
+ * Core synchronization pipeline:
+ * 1. Adaptive rate-limit evaluation and concurrency locks
+ * 2. Multi-tenant execution: runs per-user or round-robin for all active Canvas connections
+ * 3. Courses, Assignments, and Quizzes synchronization
+ * 4. Submission & grade tracking
+ * 5. Event-driven immediate push notifications
+ * 6. Telemetry collection and adaptive interval adjustments
  */
 
-import { prisma } from '../db';
+import { prisma } from '@/lib/db';
 import {
   getCourses,
   getActiveCourses,
@@ -22,21 +20,25 @@ import {
   getCurrentUser,
   getLatestCanvasTelemetry,
   resetCycleTelemetry,
-} from '../canvas/api';
+  type CanvasContext,
+} from '@/lib/canvas/api';
+import type {
+  CanvasAssignment,
+  CanvasQuiz,
+  CanvasQuizSubmission,
+} from '@/lib/canvas/types';
+import { computeTaskStatus, isTaskLocked } from '@/lib/tasks/availability';
+import { extractSemester } from '@/lib/semester';
+import { logger } from '@/lib/logger';
+import { processDueNotifications } from '@/lib/notifications/scheduler';
 import {
   canInitiateSync,
   recordAdaptiveSyncSuccess,
   recordAdaptiveSyncFailure,
   getOrCreateSyncState,
-  TARGET_INTERVAL_SECONDS,
 } from './adaptive';
-import { processDueNotifications } from '../notifications/scheduler';
-import { computeTaskStatus, isTaskLocked } from '../tasks/availability';
-import { extractSemester } from '../semester';
-import { logger } from '../logger';
-import type { CanvasAssignment, CanvasQuiz, CanvasQuizSubmission } from '../canvas/types';
-
-// ─── Types ─────────────────────────────────────────────────────────────
+import { decryptToken } from '@/lib/crypto';
+import { getUserCanvasContext } from '@/lib/auth-helpers';
 
 export interface SyncResult {
   success: boolean;
@@ -44,35 +46,127 @@ export interface SyncResult {
   tasksCount: number;
   newTasks: number;
   updatedTasks: number;
-  notificationsCount?: number;
-  error?: string;
+  notificationsCount: number;
   durationMs: number;
-  rateLimitRemaining?: number | null;
-  lastRequestCost?: number | null;
-  targetIntervalSeconds?: number;
-  currentIntervalSeconds?: number;
-  backoffRemainingSec?: number;
+  rateLimitRemaining?: number;
+  currentIntervalSec?: number;
   detectionLatencyMs?: number | null;
+  error?: string;
+  backoffRemainingSec?: number;
 }
 
-// ─── Main Sync ─────────────────────────────────────────────────────────
+// ─── Main Entrypoint ───────────────────────────────────────────────────
 
-export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResult> {
+/**
+ * Execute Canvas synchronization.
+ * If userId is provided, syncs that specific user.
+ * If no userId is provided (e.g. background cron), round-robins all active users.
+ */
+export async function syncAll(
+  triggeredBy: string = 'manual',
+  userId?: string,
+): Promise<SyncResult> {
   const startTime = Date.now();
-  const now = new Date();
-  let coursesCount = 0;
-  let tasksCount = 0;
-  let newTasks = 0;
-  let updatedTasks = 0;
-  const detectedLatencies: number[] = [];
 
-  // 1. Adaptive Rate-Limit Check: verify if system is currently throttled / backing off
+  // If a specific user is targeted, sync that user directly
+  if (userId) {
+    return syncSingleUser(userId, triggeredBy, startTime);
+  }
+
+  // Cron / Multi-user execution: Find all users with active Canvas connections
+  const connections = await prisma.canvasConnection.findMany({
+    where: { isActive: true },
+    select: {
+      id: true,
+      userId: true,
+      instanceUrl: true,
+      encryptedToken: true,
+      tokenIv: true,
+      tokenTag: true,
+    },
+    orderBy: { updatedAt: 'asc' }, // Fair round-robin: least recently updated first
+  });
+
+  if (connections.length === 0) {
+    // Fallback: check if single-user environment variables exist (legacy / local dev)
+    if (process.env.CANVAS_TOKEN) {
+      const primaryUser = await prisma.user.findFirst();
+      if (primaryUser) {
+        return syncSingleUser(primaryUser.id, triggeredBy, startTime);
+      }
+    }
+
+    return {
+      success: true,
+      coursesCount: 0,
+      tasksCount: 0,
+      newTasks: 0,
+      updatedTasks: 0,
+      notificationsCount: 0,
+      durationMs: Date.now() - startTime,
+      error: 'No active Canvas connections found to synchronize',
+    };
+  }
+
+  let aggregatedCourses = 0;
+  let aggregatedTasks = 0;
+  let aggregatedNewTasks = 0;
+  let aggregatedUpdatedTasks = 0;
+  let aggregatedNotifications = 0;
+
+  for (const conn of connections) {
+    try {
+      const token = decryptToken(conn.encryptedToken, conn.tokenIv, conn.tokenTag);
+      const userContext: CanvasContext = {
+        baseUrl: conn.instanceUrl,
+        token,
+      };
+
+      const result = await syncSingleUser(conn.userId, triggeredBy, Date.now(), userContext);
+      if (result.success) {
+        aggregatedCourses += result.coursesCount;
+        aggregatedTasks += result.tasksCount;
+        aggregatedNewTasks += result.newTasks;
+        aggregatedUpdatedTasks += result.updatedTasks;
+        aggregatedNotifications += result.notificationsCount;
+      }
+    } catch (userErr) {
+      logger.error('Failed to sync user connection', {
+        userId: conn.userId,
+        connectionId: conn.id,
+        error: String(userErr),
+      });
+    }
+  }
+
+  return {
+    success: true,
+    coursesCount: aggregatedCourses,
+    tasksCount: aggregatedTasks,
+    newTasks: aggregatedNewTasks,
+    updatedTasks: aggregatedUpdatedTasks,
+    notificationsCount: aggregatedNotifications,
+    durationMs: Date.now() - startTime,
+  };
+}
+
+// ─── Single User Sync ──────────────────────────────────────────────────
+
+async function syncSingleUser(
+  userId: string,
+  triggeredBy: string,
+  startTime: number,
+  overrideContext?: CanvasContext,
+): Promise<SyncResult> {
+  const now = new Date();
+
+  // 1. Adaptive Rate-Limit Check
   const canSync = await canInitiateSync(now);
   if (!canSync.allowed) {
-    logger.warn('Canvas sync postponed due to adaptive rate-limit backoff', {
+    logger.warn('Adaptive Controller held sync cycle: backoff active', {
+      userId,
       backoffRemainingSec: canSync.backoffRemainingSec,
       reason: canSync.reason,
-      triggeredBy,
     });
     return {
       success: false,
@@ -80,16 +174,18 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
       tasksCount: 0,
       newTasks: 0,
       updatedTasks: 0,
+      notificationsCount: 0,
       error: canSync.reason || 'Canvas is temporarily rate-limited. Automatic retry is scheduled.',
       durationMs: Date.now() - startTime,
       backoffRemainingSec: canSync.backoffRemainingSec,
     };
   }
 
-  // 2. Concurrency Lock: check for another active sync started within the last 45 seconds
+  // 2. Concurrency Lock: check for another active sync for this user started within the last 45s
   const lockExpiryThreshold = new Date(Date.now() - 45 * 1000);
   const activeRunningSync = await prisma.syncRun.findFirst({
     where: {
+      userId,
       status: 'running',
       startedAt: { gte: lockExpiryThreshold },
     },
@@ -97,7 +193,8 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
   });
 
   if (activeRunningSync) {
-    logger.warn('Skipping sync: another sync run is currently active', {
+    logger.warn('Skipping sync: another sync run is currently active for this user', {
+      userId,
       activeSyncId: activeRunningSync.id,
       startedAt: activeRunningSync.startedAt.toISOString(),
       triggeredBy,
@@ -108,14 +205,16 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
       tasksCount: 0,
       newTasks: 0,
       updatedTasks: 0,
-      error: 'Sync already in progress (concurrency lock active)',
+      notificationsCount: 0,
+      error: 'Sync already in progress for this account',
       durationMs: Date.now() - startTime,
     };
   }
 
-  // Clean up any stale running sync runs older than 45s (e.g. from serverless recycle/timeout)
+  // Clean up any stale running sync runs older than 45s
   await prisma.syncRun.updateMany({
     where: {
+      userId,
       status: 'running',
       startedAt: { lt: lockExpiryThreshold },
     },
@@ -126,12 +225,42 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
     },
   });
 
-  // Get current sync state parameters
+  // Resolve user's Canvas credentials
+  let canvasContext = overrideContext;
+  if (!canvasContext) {
+    const connContext = await getUserCanvasContext(userId);
+    if (connContext) {
+      canvasContext = {
+        baseUrl: connContext.baseUrl,
+        token: connContext.token,
+      };
+    } else if (process.env.CANVAS_TOKEN) {
+      // Dev / legacy fallback
+      canvasContext = {
+        baseUrl: process.env.CANVAS_BASE_URL || 'https://canvas.instructure.com',
+        token: process.env.CANVAS_TOKEN,
+      };
+    }
+  }
+
+  if (!canvasContext?.token) {
+    return {
+      success: false,
+      coursesCount: 0,
+      tasksCount: 0,
+      newTasks: 0,
+      updatedTasks: 0,
+      notificationsCount: 0,
+      durationMs: Date.now() - startTime,
+      error: 'No active Canvas connection found. Please connect Canvas in Settings.',
+    };
+  }
+
   const syncState = await getOrCreateSyncState();
 
-  // Create new sync run record with telemetry fields
   const syncRun = await prisma.syncRun.create({
     data: {
+      userId,
       status: 'running',
       triggeredBy,
       targetIntervalSeconds: syncState.targetIntervalSeconds,
@@ -139,31 +268,29 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
     },
   });
 
-  // Reset in-memory cycle telemetry
   resetCycleTelemetry();
 
-  logger.info('Near-real-time Canvas synchronization cycle started', {
-    syncRunId: syncRun.id,
-    triggeredBy,
-    currentInterval: syncState.currentIntervalSeconds,
-  });
+  let coursesCount = 0;
+  let tasksCount = 0;
+  let newTasks = 0;
+  let updatedTasks = 0;
+  const detectedLatencies: number[] = [];
 
   try {
-    // 3. Sync user profile
-    await syncUser();
+    // Sync user profile
+    await syncUserProfile(userId, canvasContext);
 
-    // 4. Sync courses: Focus on current active semester courses (15 courses) for rapid ~60s cycles
-    // This cuts Canvas requests in half and easily fits within serverless execution bounds.
-    const courses = await syncCourses(true);
+    // Sync courses for this user
+    const courses = await syncCoursesForUser(userId, canvasContext);
     coursesCount = courses.length;
 
-    // 5. Sync assignments and quizzes with controlled concurrency (batches of 4 courses)
+    // Sync assignments and quizzes in batches of 4 courses
     const BATCH_SIZE = 4;
     for (let i = 0; i < courses.length; i += BATCH_SIZE) {
       const batch = courses.slice(i, i + BATCH_SIZE);
       const results = await Promise.all(
-        batch.map((course: { id: string; canvasCourseId: number }) =>
-          syncCourseContent(course.id, course.canvasCourseId, detectedLatencies),
+        batch.map((course) =>
+          syncCourseContentForUser(userId, course.id, course.canvasCourseId, detectedLatencies, canvasContext),
         ),
       );
       for (const res of results) {
@@ -173,22 +300,18 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
       }
     }
 
-    // 6. Recalculate statuses for all tasks based on current time
-    const recalculated = await recalculateAllTaskStatuses(now);
+    // Recalculate statuses for this user's tasks
+    await recalculateUserTaskStatuses(userId, now);
 
-    // 7. EVENT-DRIVEN NOTIFICATION PIPELINE:
-    // Immediately dispatch any newly created notifications AND any due reminders via Web Push.
-    // Zero second delay: Changes detected this cycle are pushed to the user's phone right away.
-    const notifResult = await processDueNotifications(now).catch((err) => {
+    // Process due notifications for this user
+    const notifResult = await processDueNotifications(now, userId).catch((err) => {
       logger.error('Failed to dispatch notifications immediately after sync', { error: String(err) });
       return { scheduled: 0, sent: 0, skippedQuietHours: 0, failed: 0 };
     });
 
-    // 8. Capture Cycle Telemetry
     const telemetry = getLatestCanvasTelemetry();
     const durationMs = Date.now() - startTime;
 
-    // Compute average detection latency for this cycle if events were caught
     let cycleDetectionLatencyMs: number | null = null;
     if (detectedLatencies.length > 0) {
       cycleDetectionLatencyMs = Math.round(
@@ -196,7 +319,6 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
       );
     }
 
-    // Record adaptive success and update controller
     const updatedState = await recordAdaptiveSyncSuccess({
       rateLimitRemaining: telemetry.lastRateLimitRemaining,
       requestCost: telemetry.lastRequestCost,
@@ -204,7 +326,6 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
       now,
     });
 
-    // Finalize SyncRun in database
     await prisma.syncRun.update({
       where: { id: syncRun.id },
       data: {
@@ -225,18 +346,15 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
       },
     });
 
-    logger.info('Near-real-time Canvas synchronization completed successfully', {
+    logger.info('Canvas synchronization completed for user', {
+      userId,
       syncRunId: syncRun.id,
       coursesCount,
       tasksCount,
       newTasks,
       updatedTasks,
       notificationsSent: notifResult.sent,
-      recalculatedStatuses: recalculated,
       durationMs,
-      rateLimitRemaining: telemetry.lastRateLimitRemaining,
-      detectionLatencyMs: cycleDetectionLatencyMs,
-      nextIntervalSec: updatedState.currentIntervalSeconds,
     });
 
     return {
@@ -248,29 +366,32 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
       notificationsCount: notifResult.sent,
       durationMs,
       rateLimitRemaining: telemetry.lastRateLimitRemaining,
-      lastRequestCost: telemetry.lastRequestCost,
-      targetIntervalSeconds: updatedState.targetIntervalSeconds,
-      currentIntervalSeconds: updatedState.currentIntervalSeconds,
+      currentIntervalSec: updatedState.currentIntervalSeconds,
       detectionLatencyMs: cycleDetectionLatencyMs,
     };
   } catch (error) {
     const durationMs = Date.now() - startTime;
-    const errorMessage = error instanceof Error ? error.message : 'Unknown sync error';
     const telemetry = getLatestCanvasTelemetry();
+    const errorMessage = error instanceof Error ? error.message : String(error);
 
-    const is429 = telemetry.lastHttpStatus === 429 || errorMessage.includes('429');
-    let errorType = 'network';
-    if (is429) errorType = '429';
-    else if (telemetry.lastHttpStatus === 401 || errorMessage.includes('401')) errorType = '401';
-    else if (telemetry.lastHttpStatus === 403 || errorMessage.includes('403')) errorType = '403';
-    else if (errorMessage.toLowerCase().includes('timeout')) errorType = 'timeout';
+    const is429 =
+      telemetry.lastHttpStatus === 429 ||
+      errorMessage.includes('429') ||
+      errorMessage.toLowerCase().includes('rate limit');
 
-    // Record failure in adaptive controller (triggers backoff if 429)
-    const { state: failedState, evaluation } = await recordAdaptiveSyncFailure({
+    const errorType = is429
+      ? '429'
+      : errorMessage.includes('401')
+        ? '401'
+        : errorMessage.includes('403')
+          ? '403'
+          : errorMessage.includes('timeout')
+            ? 'timeout'
+            : 'network';
+
+    await recordAdaptiveSyncFailure({
       is429,
       retryAfterSec: telemetry.lastRetryAfter,
-      errorType,
-      errorMessage,
       now,
     });
 
@@ -280,24 +401,17 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
         status: is429 ? 'rate_limited' : 'failed',
         completedAt: new Date(),
         durationMs,
+        coursesCount,
+        tasksCount,
+        newTasks,
+        updatedTasks,
         errorMessage,
         errorType,
+        httpStatus: telemetry.lastHttpStatus || (is429 ? 429 : 500),
         rateLimitRemaining: telemetry.lastRateLimitRemaining,
         requestCost: telemetry.lastRequestCost,
-        httpStatus: telemetry.lastHttpStatus || (is429 ? 429 : 500),
-        backoffSeconds: evaluation.backoffSeconds,
-        targetIntervalSeconds: failedState.targetIntervalSeconds,
-        currentIntervalSeconds: failedState.currentIntervalSeconds,
+        backoffSeconds: telemetry.lastRetryAfter || (is429 ? 60 : 0),
       },
-    });
-
-    logger.error('Canvas synchronization failed or rate-limited', {
-      syncRunId: syncRun.id,
-      error: errorMessage,
-      errorType,
-      is429,
-      backoffSeconds: evaluation.backoffSeconds,
-      durationMs,
     });
 
     return {
@@ -306,48 +420,46 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
       tasksCount,
       newTasks,
       updatedTasks,
-      error: errorMessage,
+      notificationsCount: 0,
       durationMs,
       rateLimitRemaining: telemetry.lastRateLimitRemaining,
-      lastRequestCost: telemetry.lastRequestCost,
-      targetIntervalSeconds: failedState.targetIntervalSeconds,
-      currentIntervalSeconds: failedState.currentIntervalSeconds,
-      backoffRemainingSec: evaluation.backoffSeconds,
+      error: errorMessage,
     };
   }
 }
 
-// ─── User Sync ─────────────────────────────────────────────────────────
+// ─── User Profile Sync ─────────────────────────────────────────────────
 
-async function syncUser() {
-  const canvasUser = await getCurrentUser();
-
-  await prisma.user.upsert({
-    where: { canvasUserId: canvasUser.id },
-    update: {
-      name: canvasUser.name,
-      email: canvasUser.email || null,
-      avatarUrl: canvasUser.avatar_url || null,
-    },
-    create: {
-      canvasUserId: canvasUser.id,
-      name: canvasUser.name,
-      email: canvasUser.email || null,
-      avatarUrl: canvasUser.avatar_url || null,
-    },
-  });
+async function syncUserProfile(userId: string, context: CanvasContext) {
+  try {
+    const canvasUser = await getCurrentUser(context);
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        name: canvasUser.name,
+        avatarUrl: canvasUser.avatar_url || undefined,
+      },
+    });
+  } catch (err) {
+    logger.warn('Failed to sync user profile from Canvas', { userId, error: String(err) });
+  }
 }
 
 // ─── Course Sync ───────────────────────────────────────────────────────
 
-async function syncCourses(onlyActive: boolean = false) {
-  const canvasCourses = onlyActive ? await getActiveCourses() : await getCourses();
+async function syncCoursesForUser(userId: string, context: CanvasContext) {
+  const canvasCourses = await getCourses(context);
 
   const courses = await Promise.all(
     canvasCourses.map(async (cc) => {
       const semester = extractSemester(cc.course_code, cc.name);
       return prisma.course.upsert({
-        where: { canvasCourseId: cc.id },
+        where: {
+          userId_canvasCourseId: {
+            userId,
+            canvasCourseId: cc.id,
+          },
+        },
         update: {
           name: cc.name,
           code: cc.course_code || null,
@@ -357,6 +469,7 @@ async function syncCourses(onlyActive: boolean = false) {
           lastSyncedAt: new Date(),
         },
         create: {
+          userId,
           canvasCourseId: cc.id,
           name: cc.name,
           code: cc.course_code || null,
@@ -374,78 +487,76 @@ async function syncCourses(onlyActive: boolean = false) {
 
 // ─── Course Content Sync ───────────────────────────────────────────────
 
-async function syncCourseContent(
+async function syncCourseContentForUser(
+  userId: string,
   courseDbId: string,
   canvasCourseId: number,
   detectedLatencies: number[],
+  context: CanvasContext,
 ): Promise<{ total: number; new: number; updated: number }> {
+  const [assignments, quizzes] = await Promise.all([
+    getAssignments(canvasCourseId, context).catch(() => [] as CanvasAssignment[]),
+    getQuizzes(canvasCourseId, context).catch(() => [] as CanvasQuiz[]),
+  ]);
+
   let total = 0;
   let newCount = 0;
   let updatedCount = 0;
 
-  // Fetch assignments, quizzes, and existing course tasks in parallel
-  const [assignments, quizzes, existingTasks] = await Promise.all([
-    getAssignments(canvasCourseId).catch((err) => {
-      logger.warn('Failed to fetch assignments for course', { canvasCourseId, error: String(err) });
-      return [] as CanvasAssignment[];
-    }),
-    getQuizzes(canvasCourseId).catch((err) => {
-      logger.warn('Failed to fetch quizzes for course', { canvasCourseId, error: String(err) });
-      return [] as CanvasQuiz[];
-    }),
-    prisma.task.findMany({
-      where: { courseId: courseDbId },
-    }).catch(() => []),
-  ]);
-
-  const existingMap = new Map<string, any>(
-    (existingTasks as Array<{ canvasTaskId: string; [key: string]: any }>).map((t) => [t.canvasTaskId, t]),
-  );
-
-  // Index assignments by quiz_id and by id for quick linking to quizzes
-  const assignmentByQuizId = new Map<number, CanvasAssignment>();
-  const assignmentById = new Map<number, CanvasAssignment>();
-  for (const a of assignments) {
-    if (a.quiz_id) {
-      assignmentByQuizId.set(a.quiz_id, a);
-    }
-    assignmentById.set(a.id, a);
+  const existingTasks = await prisma.task.findMany({
+    where: {
+      userId,
+      courseId: courseDbId,
+    },
+  });
+  const existingMap = new Map<string, (typeof existingTasks)[0]>();
+  for (const t of existingTasks) {
+    existingMap.set(t.canvasTaskId, t);
   }
 
   const activeCanvasTaskIds = new Set<string>();
 
-  // Process assignments
+  // Process Assignments
   for (const assignment of assignments) {
-    // Skip assignments that are quiz assignments (handled as quizzes with full submission data)
-    if (assignment.is_quiz_assignment && assignment.quiz_id) continue;
-
     const canvasTaskId = `assignment_${assignment.id}`;
     activeCanvasTaskIds.add(canvasTaskId);
+
     const existing = existingMap.get(canvasTaskId) || null;
-    const result = await upsertAssignment(courseDbId, assignment, existing, detectedLatencies);
+    const result = await upsertAssignmentForUser(
+      userId,
+      courseDbId,
+      assignment,
+      existing,
+      detectedLatencies,
+    );
     total++;
     if (result === 'created') newCount++;
     if (result === 'updated') updatedCount++;
   }
 
-  // Process quizzes with matched assignment submission or fallback to quiz submissions endpoint
+  // Process Quizzes
+  const assignmentMap = new Map<number, CanvasAssignment>();
+  for (const a of assignments) {
+    if (a.quiz_id) {
+      assignmentMap.set(a.quiz_id, a);
+    }
+  }
+
   for (const quiz of quizzes) {
     const canvasTaskId = `quiz_${quiz.id}`;
     activeCanvasTaskIds.add(canvasTaskId);
 
-    const matchingAssignment =
-      assignmentByQuizId.get(quiz.id) ||
-      (quiz.assignment_id ? assignmentById.get(quiz.assignment_id) : undefined);
+    const matchingAssignment = assignmentMap.get(quiz.id);
+    let quizSubmission: CanvasQuizSubmission | undefined;
 
-    let quizSubmission: CanvasQuizSubmission | null = quiz.submission || null;
-
-    if (!quizSubmission && matchingAssignment?.submission) {
+    if (matchingAssignment?.submission) {
       const asub = matchingAssignment.submission;
       quizSubmission = {
         id: asub.id,
         quiz_id: quiz.id,
         user_id: asub.user_id,
-        attempt: asub.attempt ?? undefined,
+        submission_id: asub.id,
+        attempt: asub.attempt || 1,
         score: asub.score ?? null,
         kept_score: asub.score ?? null,
         workflow_state: asub.workflow_state,
@@ -455,10 +566,6 @@ async function syncCourseContent(
 
     const existing = existingMap.get(canvasTaskId) || null;
 
-    // Only query direct quiz submissions if:
-    // 1. Not already matched by assignment submission
-    // 2. We don't already know the task is submitted/graded in our DB
-    // 3. The quiz is currently unlocked and published
     if (
       !matchingAssignment &&
       !quizSubmission &&
@@ -468,7 +575,7 @@ async function syncCourseContent(
       (quiz.points_possible || 0) > 0
     ) {
       try {
-        const directSubmissions = await getQuizSubmissions(canvasCourseId, quiz.id);
+        const directSubmissions = await getQuizSubmissions(canvasCourseId, quiz.id, context);
         if (directSubmissions.length > 0) {
           const latest = directSubmissions.sort(
             (a, b) => (b.attempt || 0) - (a.attempt || 0),
@@ -478,19 +585,28 @@ async function syncCourseContent(
           }
         }
       } catch {
-        // Fallback silently if not accessible
+        // Fallback silently
       }
     }
 
-    const result = await upsertQuiz(courseDbId, quiz, quizSubmission, matchingAssignment, existing, detectedLatencies);
+    const result = await upsertQuizForUser(
+      userId,
+      courseDbId,
+      quiz,
+      quizSubmission,
+      matchingAssignment,
+      existing,
+      detectedLatencies,
+    );
     total++;
     if (result === 'created') newCount++;
     if (result === 'updated') updatedCount++;
   }
 
-  // Canvas is source of truth: mark tasks no longer returned by Canvas as unpublished (soft-state)
+  // Soft-delete tasks no longer returned by Canvas
   await prisma.task.updateMany({
     where: {
+      userId,
       courseId: courseDbId,
       canvasTaskId: { notIn: Array.from(activeCanvasTaskIds) },
       published: true,
@@ -506,7 +622,8 @@ async function syncCourseContent(
 
 // ─── Assignment Upsert ─────────────────────────────────────────────────
 
-async function upsertAssignment(
+async function upsertAssignmentForUser(
+  userId: string,
   courseDbId: string,
   assignment: CanvasAssignment,
   existingTask: any | null,
@@ -548,6 +665,7 @@ async function upsertAssignment(
   );
 
   const taskData = {
+    userId,
     courseId: courseDbId,
     sourceType: 'assignment',
     title: assignment.name,
@@ -563,9 +681,7 @@ async function upsertAssignment(
     published: assignment.published !== false,
     status,
     isSubmitted,
-    submittedAt: submission?.submitted_at
-      ? new Date(submission.submitted_at)
-      : null,
+    submittedAt: submission?.submitted_at ? new Date(submission.submitted_at) : null,
     submissionState: submission?.workflow_state || null,
     grade: submission?.grade || null,
     score: submission?.score ?? null,
@@ -577,7 +693,12 @@ async function upsertAssignment(
     existingTask !== undefined
       ? existingTask
       : await prisma.task.findUnique({
-          where: { canvasTaskId },
+          where: {
+            userId_canvasTaskId: {
+              userId,
+              canvasTaskId,
+            },
+          },
         });
 
   if (existing) {
@@ -601,7 +722,6 @@ async function upsertAssignment(
       gradeChanged;
 
     if (changed) {
-      // Calculate detection latency from assignment.updated_at if available
       if (assignment.updated_at) {
         const eventTimestamp = new Date(assignment.updated_at).getTime();
         const latency = now.getTime() - eventTimestamp;
@@ -610,9 +730,9 @@ async function upsertAssignment(
         }
       }
 
-      // Event-driven immediate notifications for meaningful changes
       if (dueChanged && taskData.dueAt) {
         await createNotificationIfNeeded(
+          userId,
           existing.id,
           'changed',
           now,
@@ -620,12 +740,12 @@ async function upsertAssignment(
         );
       }
 
-      // Unlocked event: task became available
       if (
         (statusChanged && taskData.status === 'available' && existing.status !== 'available') ||
         (availableChanged && taskData.availableAt && taskData.availableAt <= now && existing.status === 'upcoming')
       ) {
         await createNotificationIfNeeded(
+          userId,
           existing.id,
           'available',
           now,
@@ -633,9 +753,9 @@ async function upsertAssignment(
         );
       }
 
-      // Grade/score updated
       if (gradeChanged && (taskData.score != null || taskData.grade != null)) {
         await createNotificationIfNeeded(
+          userId,
           existing.id,
           'graded',
           now,
@@ -644,7 +764,12 @@ async function upsertAssignment(
       }
 
       await prisma.task.update({
-        where: { canvasTaskId },
+        where: {
+          userId_canvasTaskId: {
+            userId,
+            canvasTaskId,
+          },
+        },
         data: taskData,
       });
       return 'updated';
@@ -661,21 +786,12 @@ async function upsertAssignment(
     },
   });
 
-  // Calculate detection latency from assignment.created_at
-  if (assignment.created_at) {
-    const eventTimestamp = new Date(assignment.created_at).getTime();
-    const latency = now.getTime() - eventTimestamp;
-    if (latency >= 0 && latency < 24 * 60 * 60 * 1000) {
-      detectedLatencies.push(latency);
-    }
-  }
-
-  // Immediately schedule notification for new task
   await createNotificationIfNeeded(
+    userId,
     created.id,
     'new_task',
     now,
-    `${created.id}_new_task`,
+    `${created.id}_created_${now.toISOString().slice(0, 10)}`,
   );
 
   return 'created';
@@ -683,46 +799,57 @@ async function upsertAssignment(
 
 // ─── Quiz Upsert ───────────────────────────────────────────────────────
 
-async function upsertQuiz(
+async function upsertQuizForUser(
+  userId: string,
   courseDbId: string,
   quiz: CanvasQuiz,
-  quizSubmission: CanvasQuizSubmission | null | undefined,
-  matchingAssignment: CanvasAssignment | null | undefined,
-  existingTask: any | null,
-  detectedLatencies: number[],
+  quizSubmission?: CanvasQuizSubmission,
+  matchingAssignment?: CanvasAssignment,
+  existingTask?: any | null,
+  detectedLatencies: number[] = [],
 ): Promise<'created' | 'updated' | 'unchanged'> {
   const canvasTaskId = `quiz_${quiz.id}`;
   const now = new Date();
 
-  const sub = quizSubmission || quiz.submission;
-  const asub = matchingAssignment?.submission;
+  const dueAt = quiz.due_at
+    ? new Date(quiz.due_at)
+    : matchingAssignment?.due_at
+      ? new Date(matchingAssignment.due_at)
+      : null;
 
-  const score = sub?.score ?? sub?.kept_score ?? asub?.score ?? null;
-  const grade =
-    asub?.grade ??
-    (score != null && quiz.points_possible != null
-      ? `${score}/${quiz.points_possible}`
-      : score != null
-        ? String(score)
-        : null);
-  const attempt = sub?.attempt ?? asub?.attempt ?? null;
-  const submittedAtRaw = sub?.finished_at || asub?.submitted_at || null;
-  const submittedAt = submittedAtRaw ? new Date(submittedAtRaw) : null;
-  const submissionState =
-    sub?.workflow_state || asub?.workflow_state || (score != null ? 'complete' : null);
+  const availableAt = quiz.unlock_at
+    ? new Date(quiz.unlock_at)
+    : matchingAssignment?.unlock_at
+      ? new Date(matchingAssignment.unlock_at)
+      : null;
 
-  const isSubmitted = !!(
-    score != null ||
-    submittedAt != null ||
-    (typeof attempt === 'number' && attempt > 0) ||
-    (submissionState &&
-      ['submitted', 'graded', 'complete', 'pending_review'].includes(submissionState))
+  const lockAt = quiz.lock_at
+    ? new Date(quiz.lock_at)
+    : matchingAssignment?.lock_at
+      ? new Date(matchingAssignment.lock_at)
+      : null;
+
+  const isLocked = isTaskLocked(
+    quiz.locked_for_user || matchingAssignment?.locked_for_user || false,
+    lockAt,
+    now,
   );
 
-  const dueAt = quiz.due_at ? new Date(quiz.due_at) : null;
-  const availableAt = quiz.unlock_at ? new Date(quiz.unlock_at) : null;
-  const lockAt = quiz.lock_at ? new Date(quiz.lock_at) : null;
-  const isLocked = isTaskLocked(quiz.locked_for_user || false, lockAt, now);
+  const isSubmitted = !!(
+    (quizSubmission &&
+      (quizSubmission.workflow_state === 'complete' ||
+        quizSubmission.workflow_state === 'pending_review' ||
+        (quizSubmission.finished_at != null && quizSubmission.workflow_state !== 'untaken') ||
+        (typeof quizSubmission.attempt === 'number' && quizSubmission.attempt > 0) ||
+        quizSubmission.score != null ||
+        quizSubmission.kept_score != null)) ||
+    (matchingAssignment?.submission &&
+      matchingAssignment.submission.workflow_state !== 'unsubmitted' &&
+      (matchingAssignment.submission.submitted_at != null ||
+        (typeof matchingAssignment.submission.attempt === 'number' && matchingAssignment.submission.attempt > 0) ||
+        matchingAssignment.submission.score != null ||
+        matchingAssignment.submission.grade != null))
+  );
 
   const status = computeTaskStatus(
     {
@@ -731,12 +858,29 @@ async function upsertQuiz(
       lockAt,
       isLocked,
       isSubmitted,
-      submissionWorkflowState: submissionState,
+      submissionWorkflowState: quizSubmission?.workflow_state || matchingAssignment?.submission?.workflow_state,
     },
     now,
   );
 
+  const effectiveScore =
+    quizSubmission?.kept_score ??
+    quizSubmission?.score ??
+    matchingAssignment?.submission?.score ??
+    null;
+
+  const effectiveGrade =
+    matchingAssignment?.submission?.grade ||
+    (effectiveScore !== null ? String(effectiveScore) : null);
+
+  const effectiveSubmittedAt = quizSubmission?.finished_at
+    ? new Date(quizSubmission.finished_at)
+    : matchingAssignment?.submission?.submitted_at
+      ? new Date(matchingAssignment.submission.submitted_at)
+      : null;
+
   const taskData = {
+    userId,
     courseId: courseDbId,
     sourceType: 'quiz',
     title: quiz.title,
@@ -746,19 +890,19 @@ async function upsertQuiz(
     dueAt,
     lockAt,
     isLocked,
-    lockExplanation: quiz.lock_explanation || null,
-    pointsPossible: quiz.points_possible ?? null,
-    submissionTypes: [],
+    lockExplanation: quiz.lock_explanation || matchingAssignment?.lock_explanation || null,
+    pointsPossible: quiz.points_possible ?? matchingAssignment?.points_possible ?? null,
+    submissionTypes: ['online_quiz'],
     published: quiz.published !== false,
     status,
     isSubmitted,
-    submittedAt,
-    submissionState,
-    grade,
-    score,
-    attempt,
-    quizTimeLimit: quiz.time_limit ?? null,
-    quizAllowedAttempts: quiz.allowed_attempts ?? null,
+    submittedAt: effectiveSubmittedAt,
+    submissionState: quizSubmission?.workflow_state || matchingAssignment?.submission?.workflow_state || null,
+    grade: effectiveGrade,
+    score: effectiveScore,
+    attempt: quizSubmission?.attempt ?? matchingAssignment?.submission?.attempt ?? null,
+    quizTimeLimit: quiz.time_limit || null,
+    quizAllowedAttempts: quiz.allowed_attempts || null,
     lastSyncedAt: new Date(),
   };
 
@@ -766,7 +910,12 @@ async function upsertQuiz(
     existingTask !== undefined
       ? existingTask
       : await prisma.task.findUnique({
-          where: { canvasTaskId },
+          where: {
+            userId_canvasTaskId: {
+              userId,
+              canvasTaskId,
+            },
+          },
         });
 
   if (existing) {
@@ -777,7 +926,7 @@ async function upsertQuiz(
     const submissionChanged = existing.isSubmitted !== taskData.isSubmitted;
     const statusChanged = existing.status !== taskData.status;
     const publishedChanged = existing.published !== taskData.published;
-    const gradeChanged = existing.score !== taskData.score || existing.grade !== taskData.grade || existing.attempt !== taskData.attempt;
+    const gradeChanged = existing.grade !== taskData.grade || existing.score !== taskData.score;
 
     const changed =
       titleChanged ||
@@ -790,18 +939,9 @@ async function upsertQuiz(
       gradeChanged;
 
     if (changed) {
-      // Calculate detection latency from quiz.updated_at if available
-      if (quiz.updated_at) {
-        const eventTimestamp = new Date(quiz.updated_at).getTime();
-        const latency = now.getTime() - eventTimestamp;
-        if (latency >= 0 && latency < 24 * 60 * 60 * 1000) {
-          detectedLatencies.push(latency);
-        }
-      }
-
-      // Event-driven immediate notifications for meaningful quiz changes
       if (dueChanged && taskData.dueAt) {
         await createNotificationIfNeeded(
+          userId,
           existing.id,
           'changed',
           now,
@@ -809,12 +949,12 @@ async function upsertQuiz(
         );
       }
 
-      // Unlocked event: quiz became available
       if (
         (statusChanged && taskData.status === 'available' && existing.status !== 'available') ||
         (availableChanged && taskData.availableAt && taskData.availableAt <= now && existing.status === 'upcoming')
       ) {
         await createNotificationIfNeeded(
+          userId,
           existing.id,
           'available',
           now,
@@ -822,9 +962,9 @@ async function upsertQuiz(
         );
       }
 
-      // Grade/score updated
       if (gradeChanged && (taskData.score != null || taskData.grade != null)) {
         await createNotificationIfNeeded(
+          userId,
           existing.id,
           'graded',
           now,
@@ -833,7 +973,12 @@ async function upsertQuiz(
       }
 
       await prisma.task.update({
-        where: { canvasTaskId },
+        where: {
+          userId_canvasTaskId: {
+            userId,
+            canvasTaskId,
+          },
+        },
         data: taskData,
       });
       return 'updated';
@@ -850,22 +995,26 @@ async function upsertQuiz(
     },
   });
 
-  // Immediately schedule notification for new quiz
   await createNotificationIfNeeded(
+    userId,
     created.id,
     'new_task',
     now,
-    `${created.id}_new_quiz`,
+    `${created.id}_created_${now.toISOString().slice(0, 10)}`,
   );
 
   return 'created';
 }
 
-// ─── Task Status Recalculation ─────────────────────────────────────────
+// ─── Status Recalculation ──────────────────────────────────────────────
 
-export async function recalculateAllTaskStatuses(now: Date = new Date()): Promise<number> {
+async function recalculateUserTaskStatuses(userId: string, now: Date = new Date()): Promise<number> {
   const activeTasks = await prisma.task.findMany({
-    where: { published: true },
+    where: {
+      userId,
+      isSubmitted: false,
+      published: true,
+    },
     select: {
       id: true,
       dueAt: true,
@@ -930,9 +1079,10 @@ export async function recalculateAllTaskStatuses(now: Date = new Date()): Promis
   return updates.length;
 }
 
-// ─── Notification Helper with Idempotency Key ──────────────────────────
+// ─── Notification Helper ───────────────────────────────────────────────
 
 async function createNotificationIfNeeded(
+  userId: string | null,
   taskId: string,
   type: string,
   scheduledFor: Date,
@@ -941,6 +1091,7 @@ async function createNotificationIfNeeded(
   try {
     await prisma.notification.create({
       data: {
+        userId,
         taskId,
         type,
         scheduledFor,
@@ -949,14 +1100,15 @@ async function createNotificationIfNeeded(
       },
     });
   } catch {
-    // Unique constraint violation or idempotency collision — notification already scheduled, skip safely
+    // Unique constraint violation — already scheduled, skip safely
   }
 }
 
 // ─── Last Sync Info ────────────────────────────────────────────────────
 
-export async function getLastSyncInfo() {
+export async function getLastSyncInfo(userId?: string) {
   const lastSync = await prisma.syncRun.findFirst({
+    where: userId ? { userId } : undefined,
     orderBy: { startedAt: 'desc' },
   });
 
@@ -965,6 +1117,7 @@ export async function getLastSyncInfo() {
   });
 
   const recentRuns = await prisma.syncRun.findMany({
+    where: userId ? { userId } : undefined,
     orderBy: { startedAt: 'desc' },
     take: 8,
   });

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { getCurrentUser } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,24 +17,15 @@ const DEFAULT_PREFERENCES = {
   quietHoursEnd: '08:00',
 };
 
-/**
- * Helper to get the primary user record or create a default one.
- */
-async function getOrCreatePrimaryUser() {
-  let user = await prisma.user.findFirst({
+async function getTargetUserId(): Promise<string | null> {
+  const sessionUser = await getCurrentUser();
+  if (sessionUser?.id) return sessionUser.id;
+
+  const firstUser = await prisma.user.findFirst({
     orderBy: { createdAt: 'asc' },
   });
 
-  if (!user) {
-    user = await prisma.user.create({
-      data: {
-        canvasUserId: 0,
-        name: 'ELTE Student',
-      },
-    });
-  }
-
-  return user;
+  return firstUser?.id || null;
 }
 
 /**
@@ -41,16 +33,22 @@ async function getOrCreatePrimaryUser() {
  */
 export async function GET() {
   try {
-    const user = await getOrCreatePrimaryUser();
+    const userId = await getTargetUserId();
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized. Please sign in.' },
+        { status: 401 }
+      );
+    }
 
     let prefs = await prisma.notificationPreference.findUnique({
-      where: { userId: user.id },
+      where: { userId },
     });
 
     if (!prefs) {
       prefs = await prisma.notificationPreference.create({
         data: {
-          userId: user.id,
+          userId,
           ...DEFAULT_PREFERENCES,
         },
       });
@@ -70,11 +68,18 @@ export async function GET() {
  */
 export async function PUT(request: NextRequest) {
   try {
-    const user = await getOrCreatePrimaryUser();
+    const userId = await getTargetUserId();
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized. Please sign in.' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
 
     const updated = await prisma.notificationPreference.upsert({
-      where: { userId: user.id },
+      where: { userId },
       update: {
         taskAvailable: body.taskAvailable ?? true,
         before24h: body.before24h ?? true,
@@ -88,7 +93,7 @@ export async function PUT(request: NextRequest) {
         quietHoursEnd: body.quietHoursEnd ?? null,
       },
       create: {
-        userId: user.id,
+        userId,
         taskAvailable: body.taskAvailable ?? true,
         before24h: body.before24h ?? true,
         before6h: body.before6h ?? true,

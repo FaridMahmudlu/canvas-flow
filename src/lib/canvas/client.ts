@@ -4,8 +4,10 @@
  * Server-side only. Handles authentication, pagination, rate limiting,
  * retries, and error handling for the Canvas LMS REST API.
  *
- * The CANVAS_TOKEN is NEVER exposed to the browser — this module
- * should only be imported in server components, API routes, or server actions.
+ * Supports multi-tenant context (custom baseUrl & decrypted token per user)
+ * with backward-compatible fallback to environment variables.
+ *
+ * The Canvas access token is NEVER exposed to the browser.
  */
 
 import type { CanvasPaginationLinks, CanvasErrorResponse } from './types';
@@ -56,20 +58,32 @@ export class CanvasRateLimitError extends CanvasApiError {
 
 // ─── Configuration ─────────────────────────────────────────────────────
 
-function getConfig() {
-  const baseUrl = process.env.CANVAS_BASE_URL || 'https://canvas.elte.hu';
+export interface CanvasContext {
+  baseUrl: string;
+  token: string;
+}
+
+export function getCanvasConfig(overrideContext?: CanvasContext | null) {
+  if (overrideContext?.baseUrl && overrideContext?.token) {
+    return {
+      baseUrl: overrideContext.baseUrl.replace(/\/+$/, ''),
+      token: overrideContext.token.trim(),
+      mockMode: false,
+    };
+  }
+
+  const baseUrl = process.env.CANVAS_BASE_URL || 'https://canvas.instructure.com';
   const token = process.env.CANVAS_TOKEN;
   const isProduction = process.env.NODE_ENV === 'production';
-  // Mock mode is strictly forbidden in production
   const mockMode = !isProduction && process.env.CANVAS_MOCK_MODE === 'true';
 
   if (mockMode) {
-    return { baseUrl: 'https://canvas.elte.hu', token: 'mock-token', mockMode: true };
+    return { baseUrl: 'https://canvas.instructure.com', token: 'mock-token', mockMode: true };
   }
 
   if (!token) {
     throw new CanvasAuthError(
-      'CANVAS_TOKEN is not configured. Configure your ELTE Canvas access token in production environment variables.',
+      'Canvas access token is not configured. Please connect your Canvas LMS account in Settings.',
     );
   }
 
@@ -99,13 +113,14 @@ function parseLinkHeader(header: string | null): CanvasPaginationLinks {
 
 // ─── Request Options ───────────────────────────────────────────────────
 
-interface CanvasRequestOptions {
+export interface CanvasRequestOptions {
+  context?: CanvasContext | null;
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   body?: Record<string, unknown>;
   params?: Record<string, string | string[] | number | boolean | undefined>;
-  /** Timeout in milliseconds. Default: 30000 */
+  /** Timeout in milliseconds. Default: 10000 */
   timeout?: number;
-  /** Max retries for transient errors. Default: 3 */
+  /** Max retries for transient errors. Default: 1 */
   maxRetries?: number;
 }
 
@@ -198,13 +213,13 @@ export async function canvasRequest<T>(
   path: string,
   options: CanvasRequestOptions = {},
 ): Promise<CanvasResponse<T>> {
-  const { baseUrl, token } = getConfig();
+  const { baseUrl, token } = getCanvasConfig(options.context);
   const {
     method = 'GET',
     body,
     params,
-    timeout = 10000, // 10s reasonable timeout prevents hanging scheduler
-    maxRetries = 1, // 1 retry within cycle, then continue safely and retry next cycle
+    timeout = 10000,
+    maxRetries = 1,
   } = options;
 
   // Build URL with query params
@@ -257,7 +272,7 @@ export async function canvasRequest<T>(
         try {
           parsedError = JSON.parse(errorBody) as CanvasErrorResponse;
         } catch {
-          // Not JSON — that's fine
+          // Not JSON
         }
 
         switch (response.status) {
@@ -281,7 +296,6 @@ export async function canvasRequest<T>(
             throw new CanvasRateLimitError(retryMs);
           }
           default:
-            // Retry on 5xx
             if (response.status >= 500 && attempt < maxRetries) {
               await sleep(Math.min(1000 * Math.pow(2, attempt), 10000));
               continue;
@@ -309,7 +323,6 @@ export async function canvasRequest<T>(
       };
     } catch (error) {
       if (error instanceof CanvasApiError) {
-        // Don't retry auth/forbidden/not-found errors
         if (
           error instanceof CanvasAuthError ||
           error instanceof CanvasForbiddenError ||
@@ -342,16 +355,14 @@ export async function canvasRequest<T>(
 
 /**
  * Fetch all pages of a paginated Canvas API endpoint.
- * Follows the `next` link header until exhausted.
  */
 export async function canvasPaginatedRequest<T>(
   path: string,
   options: CanvasRequestOptions = {},
 ): Promise<T[]> {
   const allData: T[] = [];
-  const { baseUrl, token } = getConfig();
+  const { baseUrl, token } = getCanvasConfig(options.context);
 
-  // Ensure per_page is set for efficiency
   const params = { ...options.params, per_page: options.params?.per_page ?? '100' };
 
   let currentPath: string | null = path;
@@ -361,7 +372,6 @@ export async function canvasPaginatedRequest<T>(
     let response: CanvasResponse<T[]>;
 
     if (isFullUrl) {
-      // For pagination, Canvas returns full URLs. We need to call them directly.
       const startMs = Date.now();
       const fetchResponse = await fetch(currentPath, {
         headers: {
@@ -374,7 +384,6 @@ export async function canvasPaginatedRequest<T>(
         recordResponseTelemetry(fetchResponse, startMs);
 
       if (!fetchResponse.ok) {
-        // Let the main handler deal with errors
         const pathOnly = new URL(currentPath).pathname.replace('/api/v1', '');
         response = await canvasRequest<T[]>(pathOnly, { ...options, params });
         allData.push(...response.data);
@@ -390,7 +399,6 @@ export async function canvasPaginatedRequest<T>(
 
     allData.push(...response.data);
 
-    // Follow next page
     if (response.pagination.next) {
       currentPath = response.pagination.next;
       isFullUrl = true;
@@ -398,7 +406,6 @@ export async function canvasPaginatedRequest<T>(
       currentPath = null;
     }
 
-    // Safety: rate limit awareness — slow down if remaining is low
     if (response.rateLimitRemaining !== undefined && response.rateLimitRemaining < 50) {
       await sleep(500);
     }
@@ -409,15 +416,14 @@ export async function canvasPaginatedRequest<T>(
 
 /**
  * Test the Canvas API connection by fetching the current user.
- * Returns true if the connection is successful.
  */
-export async function testCanvasConnection(): Promise<{
+export async function testCanvasConnection(context?: CanvasContext | null): Promise<{
   connected: boolean;
   user?: { id: number; name: string };
   error?: string;
 }> {
   try {
-    const { data } = await canvasRequest<{ id: number; name: string }>('/users/self');
+    const { data } = await canvasRequest<{ id: number; name: string }>('/users/self', { context });
     return { connected: true, user: data };
   } catch (error) {
     const message =

@@ -1,11 +1,12 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { SessionProvider } from '@/components/providers/session-provider';
 
 export const metadata: Metadata = {
-  title: 'CanvasFlow — Academic Task Assistant',
+  title: 'CanvasFlow — Academic Command Center',
   description:
-    'Your personal academic command center. Track assignments, quizzes, deadlines, and submissions from ELTE Canvas in one clean dashboard.',
-  keywords: ['canvas', 'elte', 'academic', 'tasks', 'deadlines', 'assignments'],
+    'Your academic command center. Real-time Canvas LMS synchronization, deadline detection, and push notifications for students.',
+  keywords: ['canvas', 'lms', 'academic', 'tasks', 'deadlines', 'assignments', 'student', 'productivity'],
 };
 
 export default function RootLayout({
@@ -21,7 +22,9 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-screen">{children}</body>
+      <body className="min-h-screen">
+        <SessionProvider>{children}</SessionProvider>
+      </body>
     </html>
   );
 }
