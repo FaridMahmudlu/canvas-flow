@@ -139,6 +139,46 @@ export function getLatestCanvasTelemetry(): Readonly<CanvasTelemetry> {
   return cycleTelemetry;
 }
 
+function recordResponseTelemetry(
+  response: Response,
+  reqStart: number,
+): {
+  rateLimitRemaining?: number;
+  requestCost?: number;
+  retryAfter?: number;
+  latencyMs: number;
+} {
+  const latencyMs = Math.round(performance.now() - reqStart);
+
+  cycleTelemetry.totalRequestsInCycle++;
+  cycleTelemetry.lastHttpStatus = response.status;
+  cycleTelemetry.lastLatencyMs = latencyMs;
+
+  const rateLimitHeader = response.headers.get('X-Rate-Limit-Remaining');
+  const rateLimitRemaining = rateLimitHeader ? parseFloat(rateLimitHeader) : undefined;
+  if (rateLimitRemaining !== undefined && !isNaN(rateLimitRemaining)) {
+    cycleTelemetry.lastRateLimitRemaining = rateLimitRemaining;
+  }
+
+  const costHeader = response.headers.get('X-Request-Cost');
+  const requestCost = costHeader ? parseFloat(costHeader) : undefined;
+  if (requestCost !== undefined && !isNaN(requestCost)) {
+    cycleTelemetry.lastRequestCost = requestCost;
+  }
+
+  const retryAfterHeader = response.headers.get('Retry-After');
+  const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) : undefined;
+  if (retryAfter !== undefined && !isNaN(retryAfter)) {
+    cycleTelemetry.lastRetryAfter = retryAfter;
+  }
+
+  if (response.status === 429) {
+    cycleTelemetry.last429At = new Date();
+  }
+
+  return { rateLimitRemaining, requestCost, retryAfter, latencyMs };
+}
+
 export interface CanvasResponse<T> {
   data: T;
   pagination: CanvasPaginationLinks;
@@ -207,35 +247,8 @@ export async function canvasRequest<T>(
       });
 
       clearTimeout(timeoutId);
-      const latencyMs = Math.round(performance.now() - reqStart);
-
-      // Record Telemetry
-      cycleTelemetry.totalRequestsInCycle++;
-      cycleTelemetry.lastHttpStatus = response.status;
-      cycleTelemetry.lastLatencyMs = latencyMs;
-
-      // Rate limit info
-      const rateLimitHeader = response.headers.get('X-Rate-Limit-Remaining');
-      const rateLimitRemaining = rateLimitHeader ? parseFloat(rateLimitHeader) : undefined;
-      if (rateLimitRemaining !== undefined && !isNaN(rateLimitRemaining)) {
-        cycleTelemetry.lastRateLimitRemaining = rateLimitRemaining;
-      }
-
-      const costHeader = response.headers.get('X-Request-Cost');
-      const requestCost = costHeader ? parseFloat(costHeader) : undefined;
-      if (requestCost !== undefined && !isNaN(requestCost)) {
-        cycleTelemetry.lastRequestCost = requestCost;
-      }
-
-      const retryAfterHeader = response.headers.get('Retry-After');
-      const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) : undefined;
-      if (retryAfter !== undefined && !isNaN(retryAfter)) {
-        cycleTelemetry.lastRetryAfter = retryAfter;
-      }
-
-      if (response.status === 429) {
-        cycleTelemetry.last429At = new Date();
-      }
+      const { rateLimitRemaining, requestCost, retryAfter, latencyMs } =
+        recordResponseTelemetry(response, reqStart);
 
       // Handle errors
       if (!response.ok) {
@@ -349,6 +362,7 @@ export async function canvasPaginatedRequest<T>(
 
     if (isFullUrl) {
       // For pagination, Canvas returns full URLs. We need to call them directly.
+      const startMs = Date.now();
       const fetchResponse = await fetch(currentPath, {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -356,6 +370,8 @@ export async function canvasPaginatedRequest<T>(
         },
         signal: AbortSignal.timeout(10000),
       });
+      const { rateLimitRemaining, requestCost, latencyMs } =
+        recordResponseTelemetry(fetchResponse, startMs);
 
       if (!fetchResponse.ok) {
         // Let the main handler deal with errors
@@ -367,7 +383,7 @@ export async function canvasPaginatedRequest<T>(
 
       const data = (await fetchResponse.json()) as T[];
       const pagination = parseLinkHeader(fetchResponse.headers.get('Link'));
-      response = { data, pagination };
+      response = { data, pagination, rateLimitRemaining, requestCost, latencyMs, httpStatus: fetchResponse.status };
     } else {
       response = await canvasRequest<T[]>(currentPath, { ...options, params });
     }

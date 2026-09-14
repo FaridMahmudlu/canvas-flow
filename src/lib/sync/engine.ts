@@ -453,7 +453,20 @@ async function syncCourseContent(
       };
     }
 
-    if (!matchingAssignment && !quizSubmission && quiz.published && (quiz.points_possible || 0) > 0) {
+    const existing = existingMap.get(canvasTaskId) || null;
+
+    // Only query direct quiz submissions if:
+    // 1. Not already matched by assignment submission
+    // 2. We don't already know the task is submitted/graded in our DB
+    // 3. The quiz is currently unlocked and published
+    if (
+      !matchingAssignment &&
+      !quizSubmission &&
+      quiz.published &&
+      !quiz.locked_for_user &&
+      (!existing || !existing.isSubmitted) &&
+      (quiz.points_possible || 0) > 0
+    ) {
       try {
         const directSubmissions = await getQuizSubmissions(canvasCourseId, quiz.id);
         if (directSubmissions.length > 0) {
@@ -469,7 +482,6 @@ async function syncCourseContent(
       }
     }
 
-    const existing = existingMap.get(canvasTaskId) || null;
     const result = await upsertQuiz(courseDbId, quiz, quizSubmission, matchingAssignment, existing, detectedLatencies);
     total++;
     if (result === 'created') newCount++;

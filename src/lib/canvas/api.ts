@@ -6,6 +6,7 @@
  */
 
 import { canvasRequest, canvasPaginatedRequest } from './client';
+import { extractSemester } from '../semester';
 import type {
   CanvasUser,
   CanvasCourse,
@@ -51,16 +52,8 @@ export async function getCourses(): Promise<CanvasCourse[]> {
 export async function getActiveCourses(): Promise<CanvasCourse[]> {
   const allCourses = await getCourses();
   const currentActive = allCourses.filter((c) => {
-    const combined = `${c.course_code || ''} ${c.name || ''}`;
-    if (
-      combined.includes('2025/26/') ||
-      combined.includes('2024/25/') ||
-      combined.includes('2023/24/') ||
-      combined.includes('2022/23/')
-    ) {
-      return false;
-    }
-    return true;
+    const semester = extractSemester(c.course_code, c.name);
+    return semester === '2026/27/1';
   });
 
   return currentActive.length > 0 ? currentActive : allCourses;
