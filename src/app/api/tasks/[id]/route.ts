@@ -33,10 +33,19 @@ export async function GET(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
+    const isSubmitted =
+      task.isSubmitted ||
+      task.score != null ||
+      task.grade != null ||
+      task.submittedAt != null ||
+      task.submissionState === 'complete' ||
+      task.submissionState === 'graded' ||
+      task.submissionState === 'submitted';
+
     const now = new Date();
     const locked = isTaskLocked(task.isLocked, task.lockAt, now);
     const available = isTaskAvailable(task.availableAt, task.lockAt, task.isLocked, now);
-    const overdue = isTaskOverdue(task.dueAt, task.isSubmitted, now);
+    const overdue = isTaskOverdue(task.dueAt, isSubmitted, now);
 
     const status = computeTaskStatus(
       {
@@ -44,8 +53,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
         availableAt: task.availableAt,
         lockAt: task.lockAt,
         isLocked: locked,
-        isSubmitted: task.isSubmitted,
-        submissionWorkflowState: task.submissionState,
+        isSubmitted,
+        submissionWorkflowState: task.submissionState || (task.score != null ? 'complete' : null),
       },
       now,
     );
@@ -54,7 +63,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       dueAt: task.dueAt,
       availableAt: task.availableAt,
       isLocked: locked,
-      isSubmitted: task.isSubmitted,
+      isSubmitted,
       isOverdue: overdue,
       pointsPossible: task.pointsPossible,
       sourceType: task.sourceType as 'assignment' | 'quiz' | 'event',
@@ -81,13 +90,15 @@ export async function GET(request: NextRequest, context: RouteContext) {
         isAvailable: available,
         isLocked: locked,
         isOverdue: overdue,
-        isSubmitted: task.isSubmitted,
+        isSubmitted,
         status,
         priority,
         priorityScore,
         pointsPossible: task.pointsPossible,
         submissionTypes: task.submissionTypes,
-        submission: task.isSubmitted
+        score: task.score,
+        grade: task.grade,
+        submission: isSubmitted
           ? {
               submittedAt: task.submittedAt?.toISOString() ?? null,
               attempt: task.attempt,

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Header } from '@/components/layout/header';
+import { MobileNav } from '@/components/layout/mobile-nav';
 import { formatRelativeDeadline } from '@/lib/dates';
 
 interface CourseItem {
@@ -80,7 +81,11 @@ export default function CoursesPage() {
     <div className="flex min-h-screen bg-[var(--color-bg)]">
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} activePage="courses" />
 
-      <main className={`flex-1 transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-16'}`}>
+      <main
+        className={`flex-1 pb-24 md:pb-8 transition-all duration-300 ${
+          sidebarOpen ? 'md:ml-64' : 'md:ml-20'
+        } ml-0`}
+      >
         <Header lastSynced={lastSynced} syncing={syncing} onSync={handleSync} />
 
         <div className="max-w-6xl mx-auto px-6 py-8">
@@ -198,6 +203,8 @@ export default function CoursesPage() {
           )}
         </div>
       </main>
+
+      <MobileNav activePage="courses" />
     </div>
   );
 }

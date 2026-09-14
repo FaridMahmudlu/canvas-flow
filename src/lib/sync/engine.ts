@@ -7,11 +7,11 @@
  */
 
 import { prisma } from '../db';
-import { getCourses, getAssignments, getQuizzes, getCurrentUser } from '../canvas/api';
+import { getCourses, getAssignments, getQuizzes, getQuizSubmissions, getCurrentUser } from '../canvas/api';
 import { computeTaskStatus, isTaskLocked } from '../tasks/availability';
 import { extractSemester } from '../semester';
 import { logger } from '../logger';
-import type { CanvasAssignment, CanvasQuiz } from '../canvas/types';
+import type { CanvasAssignment, CanvasQuiz, CanvasQuizSubmission } from '../canvas/types';
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
@@ -245,11 +245,21 @@ async function syncCourseContent(
     }),
   ]);
 
+  // Index assignments by quiz_id and by id for quick linking to quizzes
+  const assignmentByQuizId = new Map<number, CanvasAssignment>();
+  const assignmentById = new Map<number, CanvasAssignment>();
+  for (const a of assignments) {
+    if (a.quiz_id) {
+      assignmentByQuizId.set(a.quiz_id, a);
+    }
+    assignmentById.set(a.id, a);
+  }
+
   const activeCanvasTaskIds = new Set<string>();
 
   // Process assignments
   for (const assignment of assignments) {
-    // Skip assignments that are quiz assignments (handled as quizzes)
+    // Skip assignments that are quiz assignments (handled as quizzes with full submission data)
     if (assignment.is_quiz_assignment && assignment.quiz_id) continue;
 
     activeCanvasTaskIds.add(`assignment_${assignment.id}`);
@@ -259,10 +269,51 @@ async function syncCourseContent(
     if (result === 'updated') updatedCount++;
   }
 
-  // Process quizzes
+  // Process quizzes with matched assignment submission or fallback to quiz submissions endpoint
   for (const quiz of quizzes) {
     activeCanvasTaskIds.add(`quiz_${quiz.id}`);
-    const result = await upsertQuiz(courseDbId, quiz);
+
+    const matchingAssignment =
+      assignmentByQuizId.get(quiz.id) ||
+      (quiz.assignment_id ? assignmentById.get(quiz.assignment_id) : undefined);
+
+    let quizSubmission: CanvasQuizSubmission | null = quiz.submission || null;
+
+    if (!quizSubmission && matchingAssignment?.submission) {
+      const asub = matchingAssignment.submission;
+      quizSubmission = {
+        id: asub.id,
+        quiz_id: quiz.id,
+        user_id: asub.user_id,
+        attempt: asub.attempt ?? undefined,
+        score: asub.score ?? null,
+        kept_score: asub.score ?? null,
+        workflow_state: asub.workflow_state,
+        finished_at: asub.submitted_at || null,
+      };
+    }
+
+    if (
+      !quizSubmission ||
+      quizSubmission.workflow_state === 'untaken' ||
+      quizSubmission.workflow_state === 'unsubmitted'
+    ) {
+      try {
+        const directSubmissions = await getQuizSubmissions(canvasCourseId, quiz.id);
+        if (directSubmissions.length > 0) {
+          const latest = directSubmissions.sort(
+            (a, b) => (b.attempt || 0) - (a.attempt || 0),
+          )[0];
+          if (latest) {
+            quizSubmission = latest;
+          }
+        }
+      } catch {
+        // Fallback silently if not accessible
+      }
+    }
+
+    const result = await upsertQuiz(courseDbId, quiz, quizSubmission, matchingAssignment);
     total++;
     if (result === 'created') newCount++;
     if (result === 'updated') updatedCount++;
@@ -297,7 +348,15 @@ async function upsertAssignment(
   const isSubmitted = !!(
     submission &&
     submission.workflow_state !== 'unsubmitted' &&
-    submission.submitted_at
+    (
+      submission.submitted_at != null ||
+      (typeof submission.attempt === 'number' && submission.attempt > 0) ||
+      submission.score != null ||
+      submission.grade != null ||
+      submission.workflow_state === 'submitted' ||
+      submission.workflow_state === 'graded' ||
+      submission.workflow_state === 'complete'
+    )
   );
 
   const dueAt = assignment.due_at ? new Date(assignment.due_at) : null;
@@ -400,11 +459,37 @@ async function upsertAssignment(
 async function upsertQuiz(
   courseDbId: string,
   quiz: CanvasQuiz,
+  quizSubmission?: CanvasQuizSubmission | null,
+  matchingAssignment?: CanvasAssignment | null,
 ): Promise<'created' | 'updated' | 'unchanged'> {
   const canvasTaskId = `quiz_${quiz.id}`;
   const now = new Date();
 
-  const isSubmitted = !!(quiz.submission && quiz.submission.finished_at);
+  const sub = quizSubmission || quiz.submission;
+  const asub = matchingAssignment?.submission;
+
+  const score = sub?.score ?? sub?.kept_score ?? asub?.score ?? null;
+  const grade =
+    asub?.grade ??
+    (score != null && quiz.points_possible != null
+      ? `${score}/${quiz.points_possible}`
+      : score != null
+        ? String(score)
+        : null);
+  const attempt = sub?.attempt ?? asub?.attempt ?? null;
+  const submittedAtRaw = sub?.finished_at || asub?.submitted_at || null;
+  const submittedAt = submittedAtRaw ? new Date(submittedAtRaw) : null;
+  const submissionState =
+    sub?.workflow_state || asub?.workflow_state || (score != null ? 'complete' : null);
+
+  const isSubmitted = !!(
+    score != null ||
+    submittedAt != null ||
+    (typeof attempt === 'number' && attempt > 0) ||
+    (submissionState &&
+      ['submitted', 'graded', 'complete', 'pending_review'].includes(submissionState))
+  );
+
   const dueAt = quiz.due_at ? new Date(quiz.due_at) : null;
   const availableAt = quiz.unlock_at ? new Date(quiz.unlock_at) : null;
   const lockAt = quiz.lock_at ? new Date(quiz.lock_at) : null;
@@ -417,7 +502,7 @@ async function upsertQuiz(
       lockAt,
       isLocked,
       isSubmitted,
-      submissionWorkflowState: quiz.submission?.workflow_state,
+      submissionWorkflowState: submissionState,
     },
     now,
   );
@@ -438,13 +523,11 @@ async function upsertQuiz(
     published: quiz.published !== false,
     status,
     isSubmitted,
-    submittedAt: quiz.submission?.finished_at
-      ? new Date(quiz.submission.finished_at)
-      : null,
-    submissionState: quiz.submission?.workflow_state || null,
-    grade: null,
-    score: quiz.submission?.score ?? null,
-    attempt: quiz.submission?.attempt ?? null,
+    submittedAt,
+    submissionState,
+    grade,
+    score,
+    attempt,
     quizTimeLimit: quiz.time_limit ?? null,
     quizAllowedAttempts: quiz.allowed_attempts ?? null,
     lastSyncedAt: new Date(),
@@ -459,10 +542,14 @@ async function upsertQuiz(
       existing.title !== taskData.title ||
       existing.dueAt?.getTime() !== taskData.dueAt?.getTime() ||
       existing.availableAt?.getTime() !== taskData.availableAt?.getTime() ||
+      existing.lockAt?.getTime() !== taskData.lockAt?.getTime() ||
       existing.isSubmitted !== taskData.isSubmitted ||
       existing.isLocked !== taskData.isLocked ||
       existing.status !== taskData.status ||
-      existing.published !== taskData.published;
+      existing.published !== taskData.published ||
+      existing.score !== taskData.score ||
+      existing.grade !== taskData.grade ||
+      existing.attempt !== taskData.attempt;
 
     if (changed) {
       if (
@@ -511,28 +598,40 @@ export async function recalculateAllTaskStatuses(now: Date = new Date()): Promis
       isLocked: true,
       isSubmitted: true,
       submissionState: true,
+      score: true,
+      grade: true,
+      submittedAt: true,
       status: true,
     },
   });
 
   let count = 0;
   for (const task of activeTasks) {
+    const effectiveSubmitted =
+      task.isSubmitted ||
+      task.score != null ||
+      task.grade != null ||
+      task.submittedAt != null;
+
     const currentComputed = computeTaskStatus(
       {
         dueAt: task.dueAt,
         availableAt: task.availableAt,
         lockAt: task.lockAt,
         isLocked: isTaskLocked(task.isLocked, task.lockAt, now),
-        isSubmitted: task.isSubmitted,
+        isSubmitted: effectiveSubmitted,
         submissionWorkflowState: task.submissionState,
       },
       now,
     );
 
-    if (currentComputed !== task.status) {
+    if (currentComputed !== task.status || effectiveSubmitted !== task.isSubmitted) {
       await prisma.task.update({
         where: { id: task.id },
-        data: { status: currentComputed },
+        data: {
+          status: currentComputed,
+          isSubmitted: effectiveSubmitted,
+        },
       });
       count++;
     }

@@ -7,6 +7,7 @@ import { Header } from '@/components/layout/header';
 import { TaskCard } from '@/components/tasks/task-card';
 import { TaskDetailDrawer } from '@/components/tasks/task-detail-drawer';
 import { EmptyState } from '@/components/ui/empty-state';
+import { MobileNav } from '@/components/layout/mobile-nav';
 import type { TaskData } from '@/app/page';
 
 interface CourseDetailPageProps {
@@ -99,7 +100,7 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
     <div className="flex min-h-screen bg-[var(--color-bg)]">
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} activePage="courses" />
 
-      <main className={`flex-1 transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-16'}`}>
+      <main className={`flex-1 transition-all duration-300 ml-0 ${sidebarOpen ? 'md:ml-64' : 'md:ml-16'} pb-24 md:pb-8`}>
         <Header lastSynced={lastSynced} syncing={syncing} onSync={handleSync} />
 
         <div className="max-w-6xl mx-auto px-6 py-8">
@@ -204,6 +205,8 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
       {selectedTask && (
         <TaskDetailDrawer task={selectedTask} onClose={() => setSelectedTask(null)} />
       )}
+
+      <MobileNav activePage="courses" />
     </div>
   );
 }

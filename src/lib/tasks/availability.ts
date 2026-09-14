@@ -48,8 +48,13 @@ export function computeTaskStatus(input: StatusInput, now: Date = new Date()): T
   const nowMs = now.getTime();
 
   // 1. Check submission
-  if (isSubmitted || submissionWorkflowState === 'graded' || submissionWorkflowState === 'submitted') {
-    if (submissionWorkflowState === 'graded') return 'completed';
+  if (
+    isSubmitted ||
+    submissionWorkflowState === 'graded' ||
+    submissionWorkflowState === 'submitted' ||
+    submissionWorkflowState === 'complete'
+  ) {
+    if (submissionWorkflowState === 'graded' || submissionWorkflowState === 'complete') return 'completed';
     return 'submitted';
   }
 

@@ -1,5 +1,7 @@
 'use client';
 
+import React from 'react';
+
 interface TaskFiltersProps {
   activeFilter: string;
   onFilterChange: (filter: string) => void;
@@ -11,12 +13,12 @@ interface TaskFiltersProps {
 }
 
 const filterTabs = [
-  { id: 'all', label: 'All' },
+  { id: 'all', label: 'All Tasks' },
   { id: 'assignments', label: 'Assignments' },
   { id: 'quizzes', label: 'Quizzes' },
   { id: 'overdue', label: 'Overdue' },
   { id: 'available', label: 'Available' },
-  { id: 'submitted', label: 'Submitted' },
+  { id: 'submitted', label: 'Completed' },
   { id: 'upcoming', label: 'Upcoming' },
 ];
 
@@ -31,14 +33,14 @@ export function TaskFilters({
 }: TaskFiltersProps) {
   return (
     <div className="mb-6 space-y-3">
-      {/* Search */}
+      {/* Search Input Bar */}
       <div className="relative">
         <svg
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-tertiary)]"
+          className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-tertiary)]"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
-          strokeWidth={1.5}
+          strokeWidth={1.75}
         >
           <path
             strokeLinecap="round"
@@ -48,46 +50,63 @@ export function TaskFilters({
         </svg>
         <input
           type="text"
-          placeholder="Search tasks…"
+          placeholder="Search by task title, course name, or topic…"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:border-transparent transition-all"
+          className="w-full pl-10 pr-10 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-xs"
         />
+        {searchQuery && (
+          <button
+            onClick={() => onSearchChange('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] rounded-full hover:bg-[var(--color-surface-hover)]"
+            aria-label="Clear search"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        )}
       </div>
 
-      {/* Filter tabs + course filter */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {/* Status tabs */}
-        <div className="flex items-center gap-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-1">
-          {filterTabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => onFilterChange(tab.id)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                activeFilter === tab.id
-                  ? 'bg-[var(--color-primary)] text-white'
-                  : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+      {/* Filter tabs & Course Selector */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        {/* Status filter tabs (horizontally scrollable on mobile) */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-1.5 shadow-2xs">
+          {filterTabs.map((tab) => {
+            const isActive = activeFilter === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => onFilterChange(tab.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all duration-150 ${
+                  isActive
+                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs'
+                    : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Course filter */}
+        {/* Course Dropdown */}
         {courses.length > 0 && (
-          <select
-            value={courseFilter}
-            onChange={(e) => onCourseFilterChange(e.target.value)}
-            className="px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-xs font-medium text-[var(--color-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] cursor-pointer"
-          >
-            <option value="all">All Courses</option>
-            {courses.map((course) => (
-              <option key={course.id} value={course.id}>
-                {course.name}
-              </option>
-            ))}
-          </select>
+          <div className="w-full sm:w-auto shrink-0">
+            <select
+              value={courseFilter}
+              onChange={(e) => onCourseFilterChange(e.target.value)}
+              className="w-full sm:w-64 px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-xs font-semibold text-[var(--color-text-secondary)] focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs truncate"
+            >
+              <option value="all">All Courses ({courses.length})</option>
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.name}
+                </option>
+              ))}
+            </select>
+          </div>
         )}
       </div>
     </div>

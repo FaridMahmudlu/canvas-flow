@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Header } from '@/components/layout/header';
+import { MobileNav } from '@/components/layout/mobile-nav';
 
 interface HealthCanvasResponse {
   status: string;
@@ -118,7 +119,7 @@ export default function DebugPage() {
     <div className="flex min-h-screen bg-[var(--color-bg)]">
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} activePage="debug" />
 
-      <main className={`flex-1 transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-16'}`}>
+      <main className={`flex-1 transition-all duration-300 ml-0 ${sidebarOpen ? 'md:ml-64' : 'md:ml-16'} pb-24 md:pb-8`}>
         <Header lastSynced={null} syncing={syncing} onSync={handleManualSync} />
 
         <div className="max-w-6xl mx-auto px-6 py-8">
@@ -279,6 +280,8 @@ export default function DebugPage() {
           </div>
         </div>
       </main>
+
+      <MobileNav activePage="debug" />
     </div>
   );
 }

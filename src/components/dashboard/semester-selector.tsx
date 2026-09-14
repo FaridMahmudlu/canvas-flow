@@ -2,6 +2,7 @@
 
 import React from 'react';
 import type { SemesterOption } from '@/lib/semester';
+import { GraduationCapIcon } from '@/components/ui/icons';
 
 interface SemesterSelectorProps {
   semesters: SemesterOption[];
@@ -21,35 +22,24 @@ export function SemesterSelector({
   }
 
   return (
-    <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-3 shadow-sm backdrop-blur-md">
-      <div className="flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg bg-[var(--color-primary-bg)] border border-[var(--color-primary-border)] flex items-center justify-center text-[var(--color-primary)] shrink-0">
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-            />
-          </svg>
+    <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-4 shadow-sm backdrop-blur-md">
+      {/* Title & Info */}
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/10 to-indigo-500/20 border border-indigo-500/20 flex items-center justify-center text-indigo-500 shrink-0 shadow-xs">
+          <GraduationCapIcon className="w-5 h-5" />
         </div>
         <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--color-text)]">
             Academic Term
           </h3>
-          <p className="text-xs text-[var(--color-text-tertiary)]">
+          <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
             Filter all statistics, deadlines, and course tasks by semester
           </p>
         </div>
       </div>
 
-      {/* Semester pill buttons */}
-      <div className="flex items-center gap-1.5 flex-wrap">
+      {/* Semester pill buttons — horizontally scrollable on small screens */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none -mx-1 px-1">
         {semesters.map((sem) => {
           const isSelected = selectedSemester === sem.id;
           return (
@@ -57,19 +47,19 @@ export function SemesterSelector({
               key={sem.id}
               onClick={() => onSelectSemester(sem.id)}
               disabled={isLoading}
-              className={`group relative inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 disabled:opacity-60 ${
+              className={`group relative inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all duration-150 disabled:opacity-60 active:scale-98 ${
                 isSelected
-                  ? 'bg-[var(--color-primary)] text-white shadow-sm ring-1 ring-[var(--color-primary)]'
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm shadow-indigo-500/25 ring-1 ring-indigo-500'
                   : 'bg-[var(--color-background)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
               }`}
             >
               <span>{sem.label}</span>
               {sem.isCurrent && (
                 <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold uppercase tracking-wider ${
+                  className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
                     isSelected
                       ? 'bg-white/20 text-white'
-                      : 'bg-[var(--color-primary-bg)] text-[var(--color-primary)] border border-[var(--color-primary-border)]'
+                      : 'bg-indigo-500/10 text-indigo-500 border border-indigo-500/20'
                   }`}
                 >
                   Current
@@ -77,7 +67,7 @@ export function SemesterSelector({
               )}
               {typeof sem.courseCount === 'number' && (
                 <span
-                  className={`text-[11px] px-1.5 py-0.2 rounded-md ${
+                  className={`text-[11px] px-1.5 py-0.5 rounded-md ${
                     isSelected
                       ? 'bg-white/25 text-white'
                       : 'bg-[var(--color-surface)] text-[var(--color-text-tertiary)] border border-[var(--color-border)]'

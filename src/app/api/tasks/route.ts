@@ -98,9 +98,18 @@ export async function GET(request: NextRequest) {
       const availableAt = task.availableAt;
       const lockAt = task.lockAt;
 
+      const isSubmitted =
+        task.isSubmitted ||
+        task.score != null ||
+        task.grade != null ||
+        task.submittedAt != null ||
+        task.submissionState === 'complete' ||
+        task.submissionState === 'graded' ||
+        task.submissionState === 'submitted';
+
       const locked = isTaskLocked(task.isLocked, lockAt, now);
       const available = isTaskAvailable(availableAt, lockAt, task.isLocked, now);
-      const overdue = isTaskOverdue(dueAt, task.isSubmitted, now);
+      const overdue = isTaskOverdue(dueAt, isSubmitted, now);
 
       const status = computeTaskStatus(
         {
@@ -108,8 +117,8 @@ export async function GET(request: NextRequest) {
           availableAt,
           lockAt,
           isLocked: locked,
-          isSubmitted: task.isSubmitted,
-          submissionWorkflowState: task.submissionState,
+          isSubmitted,
+          submissionWorkflowState: task.submissionState || (task.score != null ? 'complete' : null),
         },
         now,
       );
@@ -118,7 +127,7 @@ export async function GET(request: NextRequest) {
         dueAt,
         availableAt,
         isLocked: locked,
-        isSubmitted: task.isSubmitted,
+        isSubmitted,
         isOverdue: overdue,
         pointsPossible: task.pointsPossible,
         sourceType: task.sourceType as 'assignment' | 'quiz' | 'event',
@@ -145,13 +154,15 @@ export async function GET(request: NextRequest) {
         isAvailable: available,
         isLocked: locked,
         isOverdue: overdue,
-        isSubmitted: task.isSubmitted,
+        isSubmitted,
         status,
         priority,
         priorityScore,
         pointsPossible: task.pointsPossible,
         submissionTypes: task.submissionTypes,
-        submission: task.isSubmitted
+        score: task.score,
+        grade: task.grade,
+        submission: isSubmitted
           ? {
               submittedAt: task.submittedAt?.toISOString() ?? null,
               attempt: task.attempt,

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Header } from '@/components/layout/header';
+import { MobileNav } from '@/components/layout/mobile-nav';
 
 interface Preferences {
   taskAvailable: boolean;
@@ -181,7 +182,7 @@ export default function SettingsPage() {
     <div className="flex min-h-screen bg-[var(--color-bg)]">
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} activePage="settings" />
 
-      <main className={`flex-1 transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-16'}`}>
+      <main className={`flex-1 transition-all duration-300 ml-0 ${sidebarOpen ? 'md:ml-64' : 'md:ml-16'} pb-24 md:pb-8`}>
         <Header lastSynced={lastSynced} syncing={syncing} onSync={() => {}} />
 
         <div className="max-w-4xl mx-auto px-6 py-8">
@@ -346,6 +347,8 @@ export default function SettingsPage() {
           </div>
         </div>
       </main>
+
+      <MobileNav activePage="settings" />
     </div>
   );
 }

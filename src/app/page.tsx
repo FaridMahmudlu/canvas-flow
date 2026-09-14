@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Header } from '@/components/layout/header';
+import { MobileNav } from '@/components/layout/mobile-nav';
 import { Greeting } from '@/components/dashboard/greeting';
 import { StatsRow } from '@/components/dashboard/stats-row';
 import { SemesterSelector } from '@/components/dashboard/semester-selector';
@@ -35,6 +36,8 @@ export interface TaskData {
   priorityScore: number;
   pointsPossible: number | null;
   submissionTypes: string[];
+  score?: number | null;
+  grade?: string | null;
   submission: {
     submittedAt: string | null;
     attempt: number | null;
@@ -188,38 +191,55 @@ export default function DashboardPage() {
     filter === 'all'
       ? tasks
       : tasks.filter((t) => {
+          const isDone =
+            t.isSubmitted ||
+            t.status === 'submitted' ||
+            t.status === 'completed' ||
+            t.score != null;
+
           switch (filter) {
             case 'assignments':
               return t.sourceType === 'assignment';
             case 'quizzes':
               return t.sourceType === 'quiz';
             case 'overdue':
-              return t.status === 'overdue';
+              return !isDone && t.status === 'overdue';
             case 'available':
-              return t.status === 'available' || t.status === 'due-soon';
+              return !isDone && (t.status === 'available' || t.status === 'due-soon');
             case 'submitted':
-              return t.status === 'submitted' || t.status === 'completed';
+              return isDone;
             case 'upcoming':
-              return t.status === 'upcoming' || t.status === 'locked';
+              return !isDone && (t.status === 'upcoming' || t.status === 'locked');
             default:
               return true;
           }
         });
 
-  // Group tasks by status for dashboard sections
+  // Group tasks by status for dashboard sections (submitted items never in focus/due soon)
+  const isDoneTask = (t: TaskData) =>
+    t.isSubmitted ||
+    t.status === 'submitted' ||
+    t.status === 'completed' ||
+    t.score != null;
+
   const focusTasks = tasks.filter(
-    (t) => t.status === 'overdue' || (t.status === 'due-soon' && t.priority === 'critical'),
+    (t) =>
+      !isDoneTask(t) &&
+      (t.status === 'overdue' || (t.status === 'due-soon' && t.priority === 'critical')),
   );
   const dueSoonTasks = tasks.filter(
-    (t) => t.status === 'due-soon' && t.priority !== 'critical',
+    (t) =>
+      !isDoneTask(t) &&
+      t.status === 'due-soon' &&
+      t.priority !== 'critical',
   );
-  const availableTasks = tasks.filter((t) => t.status === 'available');
+  const availableTasks = tasks.filter((t) => !isDoneTask(t) && t.status === 'available');
   const upcomingTasks = tasks.filter(
-    (t) => t.status === 'upcoming' || t.status === 'locked',
+    (t) =>
+      !isDoneTask(t) &&
+      (t.status === 'upcoming' || t.status === 'locked'),
   );
-  const completedTasks = tasks.filter(
-    (t) => t.status === 'submitted' || t.status === 'completed',
-  );
+  const completedTasks = tasks.filter((t) => isDoneTask(t));
 
   // Get unique courses for filter
   const courses = Array.from(
@@ -234,7 +254,11 @@ export default function DashboardPage() {
     <div className="flex min-h-screen bg-[var(--color-bg)]">
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} activePage="dashboard" />
 
-      <main className={`flex-1 transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-16'}`}>
+      <main
+        className={`flex-1 pb-24 md:pb-8 transition-all duration-300 ${
+          sidebarOpen ? 'md:ml-64' : 'md:ml-20'
+        } ml-0`}
+      >
         <Header
           lastSynced={lastSynced}
           syncing={syncing}
@@ -367,6 +391,8 @@ export default function DashboardPage() {
           onClose={() => setSelectedTask(null)}
         />
       )}
+
+      <MobileNav activePage="dashboard" />
     </div>
   );
 }

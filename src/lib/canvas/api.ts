@@ -11,6 +11,7 @@ import type {
   CanvasCourse,
   CanvasAssignment,
   CanvasQuiz,
+  CanvasQuizSubmission,
   CanvasCalendarEvent,
   CanvasSubmission,
 } from './types';
@@ -111,6 +112,20 @@ export async function getQuizzes(courseId: number): Promise<CanvasQuiz[]> {
       return [];
     }
     throw error;
+  }
+}
+
+export async function getQuizSubmissions(
+  courseId: number,
+  quizId: number,
+): Promise<CanvasQuizSubmission[]> {
+  try {
+    const { data } = await canvasRequest<{ quiz_submissions?: CanvasQuizSubmission[] }>(
+      `/courses/${courseId}/quizzes/${quizId}/submissions`,
+    );
+    return data?.quiz_submissions || [];
+  } catch {
+    return [];
   }
 }
 
