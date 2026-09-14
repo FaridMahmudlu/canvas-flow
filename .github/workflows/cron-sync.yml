@@ -1,33 +1,36 @@
-name: Automated Canvas Sync & Notification Dispatcher
+name: Automated Canvas Adaptive Sync & Notification Dispatcher
 
 on:
   schedule:
-    # Runs every 15 minutes 24/7 (UTC)
-    - cron: '*/15 * * * *'
-  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+    # Fastest supported GitHub Actions cron syntax is 5 minutes (*/5 * * * *)
+    # Note: GitHub Actions scheduler queue latency varies (5-15 min delays during peak hours).
+    # For guaranteed 60-second execution 24/7 without a PC, connect free Cron-job.org or Upstash QStash.
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions UI anytime
 
 jobs:
   sync:
-    name: Sync Canvas & Dispatch Reminders
+    name: Adaptive Canvas Sync & Immediate Push
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Canvas Synchronization
+      - name: Trigger Near-Real-Time Adaptive Sync
         run: |
           if [ -z "${{ secrets.APP_URL }}" ] || [ -z "${{ secrets.CRON_SECRET }}" ]; then
-            echo "Secrets APP_URL or CRON_SECRET are not set in GitHub repository secrets. Skipping."
+            echo "Secrets APP_URL or CRON_SECRET are not configured in GitHub repository secrets. Skipping."
             exit 0
           fi
-          echo "Triggering Canvas sync..."
-          curl -f -s -S -X POST "${{ secrets.APP_URL }}/api/cron/sync" \
+          echo "Triggering CanvasFlow near-real-time adaptive sync..."
+          RESPONSE=$(curl -f -s -S -X POST "${{ secrets.APP_URL }}/api/cron/sync" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            -H "Content-Type: application/json"
+            -H "Content-Type: application/json")
+          echo "Sync response: $RESPONSE"
 
-      - name: Trigger Notification Reminder Dispatcher
+      - name: Trigger Scheduled Deadline Reminders (Safety Sweep)
         run: |
           if [ -z "${{ secrets.APP_URL }}" ] || [ -z "${{ secrets.CRON_SECRET }}" ]; then
             exit 0
           fi
-          echo "Triggering notification dispatcher..."
+          echo "Running scheduled notification sweep..."
           curl -f -s -S -X POST "${{ secrets.APP_URL }}/api/cron/notifications" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json"

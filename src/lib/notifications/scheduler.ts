@@ -79,6 +79,7 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
               type: '24h',
               scheduledFor: time24h,
               state: 'pending',
+              idempotencyKey: `${task.id}_24h_${dueTime}`,
             },
           });
           scheduledCount++;
@@ -99,6 +100,7 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
               type: '6h',
               scheduledFor: time6h,
               state: 'pending',
+              idempotencyKey: `${task.id}_6h_${dueTime}`,
             },
           });
           scheduledCount++;
@@ -119,6 +121,7 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
               type: '1h',
               scheduledFor: time1h,
               state: 'pending',
+              idempotencyKey: `${task.id}_1h_${dueTime}`,
             },
           });
           scheduledCount++;
@@ -137,6 +140,7 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
             type: 'overdue',
             scheduledFor: task.dueAt,
             state: 'pending',
+            idempotencyKey: `${task.id}_overdue_${dueTime}`,
           },
         });
         scheduledCount++;
@@ -166,6 +170,7 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
             type: 'available',
             scheduledFor: task.availableAt,
             state: 'pending',
+            idempotencyKey: `${task.id}_available_${task.availableAt.getTime()}`,
           },
         });
         scheduledCount++;
@@ -264,6 +269,10 @@ export async function processDueNotifications(now: Date = new Date()): Promise<S
       case 'changed':
         title = `Deadline Changed: ${notif.task.course.name}`;
         body = `Deadline updated for "${notif.task.title}".`;
+        break;
+      case 'graded':
+        title = `Score Updated: ${notif.task.course.name}`;
+        body = `"${notif.task.title}" graded: ${notif.task.grade || notif.task.score || 'Reviewed'}.`;
         break;
     }
 

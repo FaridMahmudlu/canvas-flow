@@ -18,6 +18,9 @@ import type {
 
 // ─── Current User ──────────────────────────────────────────────────────
 
+export { getLatestCanvasTelemetry, resetCycleTelemetry } from './client';
+export type { CanvasTelemetry } from './client';
+
 export async function getCurrentUser(): Promise<CanvasUser> {
   const { data } = await canvasRequest<CanvasUser>('/users/self');
   return data;
@@ -39,6 +42,28 @@ export async function getCourses(): Promise<CanvasCourse[]> {
   return courses.filter(
     (c) => c.workflow_state === 'available' || c.workflow_state === 'unpublished',
   );
+}
+
+/**
+ * Fetch courses filtered to current active academic terms.
+ * Avoids hammering Canvas for historical/archived terms during rapid polling cycles.
+ */
+export async function getActiveCourses(): Promise<CanvasCourse[]> {
+  const allCourses = await getCourses();
+  const currentActive = allCourses.filter((c) => {
+    const combined = `${c.course_code || ''} ${c.name || ''}`;
+    if (
+      combined.includes('2025/26/') ||
+      combined.includes('2024/25/') ||
+      combined.includes('2023/24/') ||
+      combined.includes('2022/23/')
+    ) {
+      return false;
+    }
+    return true;
+  });
+
+  return currentActive.length > 0 ? currentActive : allCourses;
 }
 
 // ─── Assignments ───────────────────────────────────────────────────────

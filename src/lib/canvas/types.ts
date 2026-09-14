@@ -169,6 +169,8 @@ export interface CanvasQuiz {
   lock_explanation?: string | null;
   assignment_id?: number | null;
   course_id?: number;
+  created_at?: string;
+  updated_at?: string;
   // Not always available
   submission?: CanvasQuizSubmission | null;
 }

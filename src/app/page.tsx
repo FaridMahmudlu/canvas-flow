@@ -163,10 +163,17 @@ export default function DashboardPage() {
 
   const handleSync = useCallback(async () => {
     setSyncing(true);
+    setError(null);
     try {
       const res = await fetch('/api/sync', { method: 'POST' });
-      if (!res.ok) throw new Error('Sync failed');
       const result = await res.json();
+      if (res.status === 429 || result.backoffRemainingSec) {
+        setError('Canvas is temporarily rate-limited. Automatic retry is scheduled.');
+        return;
+      }
+      if (!res.ok && !result.success) {
+        throw new Error(result.error || 'Sync failed');
+      }
       if (result.success) {
         setLastSynced(new Date().toISOString());
         await Promise.all([fetchTasks(), fetchSemesters()]);

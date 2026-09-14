@@ -5,11 +5,11 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 /**
- * GET /api/sync — Get last sync status
+ * GET /api/sync — Get last sync status and adaptive controller state
  */
 export async function GET() {
   try {
-    const lastSync = await getLastSyncInfo();
+    const { lastSync, syncState, recentRuns } = await getLastSyncInfo();
     return NextResponse.json({
       lastSync: lastSync
         ? {
@@ -17,11 +17,38 @@ export async function GET() {
             status: lastSync.status,
             startedAt: lastSync.startedAt,
             completedAt: lastSync.completedAt,
+            durationMs: lastSync.durationMs,
             coursesCount: lastSync.coursesCount,
             tasksCount: lastSync.tasksCount,
+            newTasks: lastSync.newTasks,
+            updatedTasks: lastSync.updatedTasks,
+            notificationsCount: lastSync.notificationsCount,
+            rateLimitRemaining: lastSync.rateLimitRemaining,
+            requestCost: lastSync.requestCost,
+            targetIntervalSeconds: lastSync.targetIntervalSeconds,
+            currentIntervalSeconds: lastSync.currentIntervalSeconds,
+            detectionLatencyMs: lastSync.detectionLatencyMs,
             errorMessage: lastSync.errorMessage,
+            errorType: lastSync.errorType,
           }
         : null,
+      syncState: syncState
+        ? {
+            targetIntervalSeconds: syncState.targetIntervalSeconds,
+            currentIntervalSeconds: syncState.currentIntervalSeconds,
+            consecutiveSuccesses: syncState.consecutiveSuccesses,
+            lastRateLimitRemaining: syncState.lastRateLimitRemaining,
+            lastRequestCost: syncState.lastRequestCost,
+            last429At: syncState.last429At,
+            backoffUntil: syncState.backoffUntil,
+            lastSyncAt: syncState.lastSyncAt,
+            lastSuccessSyncAt: syncState.lastSuccessSyncAt,
+            lastDetectionLatencyMs: syncState.lastDetectionLatencyMs,
+            avgDetectionLatencyMs: syncState.avgDetectionLatencyMs,
+            worstDetectionLatencyMs: syncState.worstDetectionLatencyMs,
+          }
+        : null,
+      recentRuns: recentRuns || [],
     });
   } catch (error) {
     return NextResponse.json(
@@ -32,11 +59,14 @@ export async function GET() {
 }
 
 /**
- * POST /api/sync — Trigger a manual sync
+ * POST /api/sync — Trigger a safe manual sync (respects adaptive rate limits)
  */
 export async function POST() {
   try {
     const result = await syncAll('manual');
+    if (!result.success && result.backoffRemainingSec) {
+      return NextResponse.json(result, { status: 429 });
+    }
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(

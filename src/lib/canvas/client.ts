@@ -109,10 +109,43 @@ interface CanvasRequestOptions {
   maxRetries?: number;
 }
 
-interface CanvasResponse<T> {
+export interface CanvasTelemetry {
+  lastRateLimitRemaining?: number;
+  lastRequestCost?: number;
+  lastHttpStatus?: number;
+  lastLatencyMs?: number;
+  lastRetryAfter?: number;
+  last429At?: Date;
+  totalRequestsInCycle: number;
+}
+
+let cycleTelemetry: CanvasTelemetry = {
+  totalRequestsInCycle: 0,
+};
+
+export function resetCycleTelemetry(): void {
+  cycleTelemetry = {
+    totalRequestsInCycle: 0,
+    lastRateLimitRemaining: cycleTelemetry.lastRateLimitRemaining,
+    lastRequestCost: cycleTelemetry.lastRequestCost,
+    lastHttpStatus: cycleTelemetry.lastHttpStatus,
+    lastLatencyMs: cycleTelemetry.lastLatencyMs,
+    lastRetryAfter: cycleTelemetry.lastRetryAfter,
+    last429At: cycleTelemetry.last429At,
+  };
+}
+
+export function getLatestCanvasTelemetry(): Readonly<CanvasTelemetry> {
+  return cycleTelemetry;
+}
+
+export interface CanvasResponse<T> {
   data: T;
   pagination: CanvasPaginationLinks;
   rateLimitRemaining?: number;
+  requestCost?: number;
+  latencyMs?: number;
+  httpStatus?: number;
 }
 
 // ─── Core Client ───────────────────────────────────────────────────────
@@ -165,6 +198,7 @@ export async function canvasRequest<T>(
         headers['Content-Type'] = 'application/json';
       }
 
+      const reqStart = performance.now();
       const response = await fetch(url.toString(), {
         method,
         headers,
@@ -173,11 +207,35 @@ export async function canvasRequest<T>(
       });
 
       clearTimeout(timeoutId);
+      const latencyMs = Math.round(performance.now() - reqStart);
+
+      // Record Telemetry
+      cycleTelemetry.totalRequestsInCycle++;
+      cycleTelemetry.lastHttpStatus = response.status;
+      cycleTelemetry.lastLatencyMs = latencyMs;
 
       // Rate limit info
-      const rateLimitRemaining = response.headers.get('X-Rate-Limit-Remaining')
-        ? Number(response.headers.get('X-Rate-Limit-Remaining'))
-        : undefined;
+      const rateLimitHeader = response.headers.get('X-Rate-Limit-Remaining');
+      const rateLimitRemaining = rateLimitHeader ? parseFloat(rateLimitHeader) : undefined;
+      if (rateLimitRemaining !== undefined && !isNaN(rateLimitRemaining)) {
+        cycleTelemetry.lastRateLimitRemaining = rateLimitRemaining;
+      }
+
+      const costHeader = response.headers.get('X-Request-Cost');
+      const requestCost = costHeader ? parseFloat(costHeader) : undefined;
+      if (requestCost !== undefined && !isNaN(requestCost)) {
+        cycleTelemetry.lastRequestCost = requestCost;
+      }
+
+      const retryAfterHeader = response.headers.get('Retry-After');
+      const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) : undefined;
+      if (retryAfter !== undefined && !isNaN(retryAfter)) {
+        cycleTelemetry.lastRetryAfter = retryAfter;
+      }
+
+      if (response.status === 429) {
+        cycleTelemetry.last429At = new Date();
+      }
 
       // Handle errors
       if (!response.ok) {
@@ -199,9 +257,8 @@ export async function canvasRequest<T>(
           case 404:
             throw new CanvasNotFoundError();
           case 429: {
-            const retryAfter = response.headers.get('Retry-After');
-            const retryMs = retryAfter
-              ? parseInt(retryAfter, 10) * 1000
+            const retryMs = retryAfter !== undefined
+              ? retryAfter * 1000
               : Math.min(1000 * Math.pow(2, attempt), 30000);
 
             if (attempt < maxRetries) {
@@ -229,7 +286,14 @@ export async function canvasRequest<T>(
       const data = (await response.json()) as T;
       const pagination = parseLinkHeader(response.headers.get('Link'));
 
-      return { data, pagination, rateLimitRemaining };
+      return {
+        data,
+        pagination,
+        rateLimitRemaining,
+        requestCost,
+        latencyMs,
+        httpStatus: response.status,
+      };
     } catch (error) {
       if (error instanceof CanvasApiError) {
         // Don't retry auth/forbidden/not-found errors

@@ -104,9 +104,10 @@ model Notification {
   type         String   // "available" | "24h" | "6h" | "1h" | "overdue" | "new_task" | "changed"
   scheduledFor DateTime
   sentAt       DateTime?
-  state        String   @default("pending") // "pending" | "sent" | "failed" | "skipped"
-  errorMessage String?
-  createdAt    DateTime @default(now())
+  state          String   @default("pending") // "pending" | "sent" | "failed" | "skipped"
+  errorMessage   String?
+  idempotencyKey String?  @unique
+  createdAt      DateTime @default(now())
 
   @@unique([taskId, type, scheduledFor])
   @@index([scheduledFor])
@@ -152,14 +153,45 @@ model PushSubscription {
 // ─── Sync Run ──────────────────────────────────────────────────────────
 
 model SyncRun {
-  id           String    @id @default(cuid())
-  status       String    // "running" | "completed" | "failed"
-  startedAt    DateTime  @default(now())
-  completedAt  DateTime?
-  coursesCount Int?
-  tasksCount   Int?
-  errorMessage String?
-  triggeredBy  String?   // "manual" | "cron" | "auto"
+  id                     String    @id @default(cuid())
+  status                 String    // "running" | "completed" | "failed" | "rate_limited" | "skipped"
+  startedAt              DateTime  @default(now())
+  completedAt            DateTime?
+  durationMs             Int?
+  coursesCount           Int?
+  tasksCount             Int?
+  newTasks               Int?      @default(0)
+  updatedTasks           Int?      @default(0)
+  notificationsCount     Int?      @default(0)
+  rateLimitRemaining     Float?
+  requestCost            Float?
+  httpStatus             Int?
+  backoffSeconds         Int?
+  targetIntervalSeconds  Int?      @default(60)
+  currentIntervalSeconds Int?      @default(60)
+  detectionLatencyMs     Int?
+  errorMessage           String?
+  errorType              String?   // "429" | "401" | "403" | "timeout" | "network"
+  triggeredBy            String?   // "manual" | "cron" | "auto" | "adaptive"
 
   @@index([status, startedAt])
+}
+
+// ─── Sync State (Adaptive Controller Singleton) ────────────────────────
+
+model SyncState {
+  id                      String    @id @default("global")
+  targetIntervalSeconds   Int       @default(60)
+  currentIntervalSeconds  Int       @default(60)
+  consecutiveSuccesses    Int       @default(0)
+  lastRateLimitRemaining  Float?
+  lastRequestCost         Float?
+  last429At               DateTime?
+  backoffUntil            DateTime?
+  lastSyncAt              DateTime?
+  lastSuccessSyncAt       DateTime?
+  lastDetectionLatencyMs  Int?
+  avgDetectionLatencyMs   Int?
+  worstDetectionLatencyMs Int?
+  updatedAt               DateTime  @updatedAt
 }
