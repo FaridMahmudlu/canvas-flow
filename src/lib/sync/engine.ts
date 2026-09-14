@@ -100,7 +100,9 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
     for (let i = 0; i < courses.length; i += BATCH_SIZE) {
       const batch = courses.slice(i, i + BATCH_SIZE);
       const results = await Promise.all(
-        batch.map((course) => syncCourseContent(course.id, course.canvasCourseId)),
+        batch.map((course: { id: string; canvasCourseId: number }) =>
+          syncCourseContent(course.id, course.canvasCourseId),
+        ),
       );
       for (const res of results) {
         tasksCount += res.total;
@@ -200,31 +202,31 @@ async function syncUser() {
 async function syncCourses() {
   const canvasCourses = await getCourses();
 
-  const courses = [];
-  for (const cc of canvasCourses) {
-    const semester = extractSemester(cc.course_code, cc.name);
-    const course = await prisma.course.upsert({
-      where: { canvasCourseId: cc.id },
-      update: {
-        name: cc.name,
-        code: cc.course_code || null,
-        semester,
-        workflowState: cc.workflow_state,
-        timezone: cc.time_zone || null,
-        lastSyncedAt: new Date(),
-      },
-      create: {
-        canvasCourseId: cc.id,
-        name: cc.name,
-        code: cc.course_code || null,
-        semester,
-        workflowState: cc.workflow_state,
-        timezone: cc.time_zone || null,
-        lastSyncedAt: new Date(),
-      },
-    });
-    courses.push(course);
-  }
+  const courses = await Promise.all(
+    canvasCourses.map(async (cc) => {
+      const semester = extractSemester(cc.course_code, cc.name);
+      return prisma.course.upsert({
+        where: { canvasCourseId: cc.id },
+        update: {
+          name: cc.name,
+          code: cc.course_code || null,
+          semester,
+          workflowState: cc.workflow_state,
+          timezone: cc.time_zone || null,
+          lastSyncedAt: new Date(),
+        },
+        create: {
+          canvasCourseId: cc.id,
+          name: cc.name,
+          code: cc.course_code || null,
+          semester,
+          workflowState: cc.workflow_state,
+          timezone: cc.time_zone || null,
+          lastSyncedAt: new Date(),
+        },
+      });
+    }),
+  );
 
   return courses;
 }
@@ -239,8 +241,8 @@ async function syncCourseContent(
   let newCount = 0;
   let updatedCount = 0;
 
-  // Fetch assignments and quizzes in parallel
-  const [assignments, quizzes] = await Promise.all([
+  // Fetch assignments, quizzes, and existing course tasks in parallel
+  const [assignments, quizzes, existingTasks] = await Promise.all([
     getAssignments(canvasCourseId).catch((err) => {
       logger.warn('Failed to fetch assignments for course', { canvasCourseId, error: String(err) });
       return [] as CanvasAssignment[];
@@ -249,7 +251,14 @@ async function syncCourseContent(
       logger.warn('Failed to fetch quizzes for course', { canvasCourseId, error: String(err) });
       return [] as CanvasQuiz[];
     }),
+    prisma.task.findMany({
+      where: { courseId: courseDbId },
+    }).catch(() => []),
   ]);
+
+  const existingMap = new Map<string, any>(
+    (existingTasks as Array<{ canvasTaskId: string; [key: string]: any }>).map((t) => [t.canvasTaskId, t]),
+  );
 
   // Index assignments by quiz_id and by id for quick linking to quizzes
   const assignmentByQuizId = new Map<number, CanvasAssignment>();
@@ -268,8 +277,10 @@ async function syncCourseContent(
     // Skip assignments that are quiz assignments (handled as quizzes with full submission data)
     if (assignment.is_quiz_assignment && assignment.quiz_id) continue;
 
-    activeCanvasTaskIds.add(`assignment_${assignment.id}`);
-    const result = await upsertAssignment(courseDbId, assignment);
+    const canvasTaskId = `assignment_${assignment.id}`;
+    activeCanvasTaskIds.add(canvasTaskId);
+    const existing = existingMap.get(canvasTaskId) || null;
+    const result = await upsertAssignment(courseDbId, assignment, existing);
     total++;
     if (result === 'created') newCount++;
     if (result === 'updated') updatedCount++;
@@ -277,7 +288,8 @@ async function syncCourseContent(
 
   // Process quizzes with matched assignment submission or fallback to quiz submissions endpoint
   for (const quiz of quizzes) {
-    activeCanvasTaskIds.add(`quiz_${quiz.id}`);
+    const canvasTaskId = `quiz_${quiz.id}`;
+    activeCanvasTaskIds.add(canvasTaskId);
 
     const matchingAssignment =
       assignmentByQuizId.get(quiz.id) ||
@@ -315,7 +327,8 @@ async function syncCourseContent(
       }
     }
 
-    const result = await upsertQuiz(courseDbId, quiz, quizSubmission, matchingAssignment);
+    const existing = existingMap.get(canvasTaskId) || null;
+    const result = await upsertQuiz(courseDbId, quiz, quizSubmission, matchingAssignment, existing);
     total++;
     if (result === 'created') newCount++;
     if (result === 'updated') updatedCount++;
@@ -342,6 +355,7 @@ async function syncCourseContent(
 async function upsertAssignment(
   courseDbId: string,
   assignment: CanvasAssignment,
+  existingTask?: any | null,
 ): Promise<'created' | 'updated' | 'unchanged'> {
   const canvasTaskId = `assignment_${assignment.id}`;
   const submission = assignment.submission;
@@ -404,9 +418,12 @@ async function upsertAssignment(
     lastSyncedAt: new Date(),
   };
 
-  const existing = await prisma.task.findUnique({
-    where: { canvasTaskId },
-  });
+  const existing =
+    existingTask !== undefined
+      ? existingTask
+      : await prisma.task.findUnique({
+          where: { canvasTaskId },
+        });
 
   if (existing) {
     const changed =
@@ -436,10 +453,6 @@ async function upsertAssignment(
       return 'updated';
     }
 
-    await prisma.task.update({
-      where: { canvasTaskId },
-      data: { lastSyncedAt: new Date() },
-    });
     return 'unchanged';
   }
 
@@ -463,6 +476,7 @@ async function upsertQuiz(
   quiz: CanvasQuiz,
   quizSubmission?: CanvasQuizSubmission | null,
   matchingAssignment?: CanvasAssignment | null,
+  existingTask?: any | null,
 ): Promise<'created' | 'updated' | 'unchanged'> {
   const canvasTaskId = `quiz_${quiz.id}`;
   const now = new Date();
@@ -535,9 +549,12 @@ async function upsertQuiz(
     lastSyncedAt: new Date(),
   };
 
-  const existing = await prisma.task.findUnique({
-    where: { canvasTaskId },
-  });
+  const existing =
+    existingTask !== undefined
+      ? existingTask
+      : await prisma.task.findUnique({
+          where: { canvasTaskId },
+        });
 
   if (existing) {
     const changed =
@@ -568,10 +585,6 @@ async function upsertQuiz(
       return 'updated';
     }
 
-    await prisma.task.update({
-      where: { canvasTaskId },
-      data: { lastSyncedAt: new Date() },
-    });
     return 'unchanged';
   }
 
@@ -607,7 +620,7 @@ export async function recalculateAllTaskStatuses(now: Date = new Date()): Promis
     },
   });
 
-  let count = 0;
+  const updates: Array<{ id: string; status: string; isSubmitted: boolean }> = [];
   for (const task of activeTasks) {
     const effectiveSubmitted =
       task.isSubmitted ||
@@ -628,18 +641,29 @@ export async function recalculateAllTaskStatuses(now: Date = new Date()): Promis
     );
 
     if (currentComputed !== task.status || effectiveSubmitted !== task.isSubmitted) {
-      await prisma.task.update({
-        where: { id: task.id },
-        data: {
-          status: currentComputed,
-          isSubmitted: effectiveSubmitted,
-        },
+      updates.push({
+        id: task.id,
+        status: currentComputed,
+        isSubmitted: effectiveSubmitted,
       });
-      count++;
     }
   }
 
-  return count;
+  if (updates.length > 0) {
+    await Promise.all(
+      updates.map((u) =>
+        prisma.task.update({
+          where: { id: u.id },
+          data: {
+            status: u.status,
+            isSubmitted: u.isSubmitted,
+          },
+        }),
+      ),
+    );
+  }
+
+  return updates.length;
 }
 
 // ─── Notification Helper ───────────────────────────────────────────────
