@@ -1,14 +1,27 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/notifications — Returns recent notifications and counts.
+ * GET /api/notifications — Returns recent notifications and counts for the authenticated user.
  */
 export async function GET() {
   try {
+    const authRes = await requireAuth();
+    if ('response' in authRes) return authRes.response;
+    const { user } = authRes;
+
+    const userScope = {
+      OR: [
+        { userId: user.id },
+        { task: { userId: user.id } },
+      ],
+    };
+
     const notifications = await prisma.notification.findMany({
+      where: userScope,
       take: 50,
       orderBy: { scheduledFor: 'desc' },
       include: {
@@ -29,11 +42,17 @@ export async function GET() {
     });
 
     const pendingCount = await prisma.notification.count({
-      where: { state: 'pending' },
+      where: {
+        state: 'pending',
+        ...userScope,
+      },
     });
 
     const sentCount = await prisma.notification.count({
-      where: { state: 'sent' },
+      where: {
+        state: 'sent',
+        ...userScope,
+      },
     });
 
     interface DbNotificationItem {

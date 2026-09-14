@@ -8,6 +8,7 @@ import {
   isTaskOverdue,
   isTaskLocked,
 } from '@/lib/tasks/availability';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,10 +18,18 @@ interface RouteContext {
 
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
+    const authRes = await requireAuth();
+    if ('response' in authRes) return authRes.response;
+    const { user } = authRes;
+
     const { id } = await context.params;
 
-    const task = await prisma.task.findUnique({
-      where: { id },
+    // Enforce strict user isolation: tasks can only be accessed by their owner
+    const task = await prisma.task.findFirst({
+      where: {
+        id,
+        userId: user.id,
+      },
       include: {
         course: true,
         notifications: {

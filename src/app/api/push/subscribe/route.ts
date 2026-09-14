@@ -1,19 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { getCurrentUser } from '@/lib/auth-helpers';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
-
-async function getTargetUserId(): Promise<string | null> {
-  const sessionUser = await getCurrentUser();
-  if (sessionUser?.id) return sessionUser.id;
-
-  const firstUser = await prisma.user.findFirst({
-    orderBy: { createdAt: 'asc' },
-  });
-
-  return firstUser?.id || null;
-}
 
 /**
  * GET /api/push/subscribe — Returns the VAPID public key for browser push registration.
@@ -27,17 +16,13 @@ export async function GET() {
 }
 
 /**
- * POST /api/push/subscribe — Register or update browser push subscription.
+ * POST /api/push/subscribe — Register or update browser push subscription for authenticated user.
  */
 export async function POST(request: NextRequest) {
   try {
-    const userId = await getTargetUserId();
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized. Please sign in.' },
-        { status: 401 }
-      );
-    }
+    const authRes = await requireAuth();
+    if ('response' in authRes) return authRes.response;
+    const { user } = authRes;
 
     const body = await request.json();
     const { endpoint, keys } = body;
@@ -54,10 +39,10 @@ export async function POST(request: NextRequest) {
       update: {
         p256dh: keys.p256dh,
         auth: keys.auth,
-        userId,
+        userId: user.id,
       },
       create: {
-        userId,
+        userId: user.id,
         endpoint,
         p256dh: keys.p256dh,
         auth: keys.auth,
@@ -74,10 +59,14 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * DELETE /api/push/subscribe — Unregister push subscription.
+ * DELETE /api/push/subscribe — Unregister push subscription for authenticated user.
  */
 export async function DELETE(request: NextRequest) {
   try {
+    const authRes = await requireAuth();
+    if ('response' in authRes) return authRes.response;
+    const { user } = authRes;
+
     const { endpoint } = await request.json();
 
     if (!endpoint) {
@@ -85,7 +74,10 @@ export async function DELETE(request: NextRequest) {
     }
 
     await prisma.pushSubscription.deleteMany({
-      where: { endpoint },
+      where: {
+        endpoint,
+        userId: user.id,
+      },
     });
 
     return NextResponse.json({ success: true });

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { getCurrentUser } from '@/lib/auth-helpers';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,38 +17,23 @@ const DEFAULT_PREFERENCES = {
   quietHoursEnd: '08:00',
 };
 
-async function getTargetUserId(): Promise<string | null> {
-  const sessionUser = await getCurrentUser();
-  if (sessionUser?.id) return sessionUser.id;
-
-  const firstUser = await prisma.user.findFirst({
-    orderBy: { createdAt: 'asc' },
-  });
-
-  return firstUser?.id || null;
-}
-
 /**
  * GET /api/notification-preferences — Retrieve user's notification preferences.
  */
 export async function GET() {
   try {
-    const userId = await getTargetUserId();
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized. Please sign in.' },
-        { status: 401 }
-      );
-    }
+    const authRes = await requireAuth();
+    if ('response' in authRes) return authRes.response;
+    const { user } = authRes;
 
     let prefs = await prisma.notificationPreference.findUnique({
-      where: { userId },
+      where: { userId: user.id },
     });
 
     if (!prefs) {
       prefs = await prisma.notificationPreference.create({
         data: {
-          userId,
+          userId: user.id,
           ...DEFAULT_PREFERENCES,
         },
       });
@@ -68,18 +53,14 @@ export async function GET() {
  */
 export async function PUT(request: NextRequest) {
   try {
-    const userId = await getTargetUserId();
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized. Please sign in.' },
-        { status: 401 }
-      );
-    }
+    const authRes = await requireAuth();
+    if ('response' in authRes) return authRes.response;
+    const { user } = authRes;
 
     const body = await request.json();
 
     const updated = await prisma.notificationPreference.upsert({
-      where: { userId },
+      where: { userId: user.id },
       update: {
         taskAvailable: body.taskAvailable ?? true,
         before24h: body.before24h ?? true,
@@ -93,7 +74,7 @@ export async function PUT(request: NextRequest) {
         quietHoursEnd: body.quietHoursEnd ?? null,
       },
       create: {
-        userId,
+        userId: user.id,
         taskAvailable: body.taskAvailable ?? true,
         before24h: body.before24h ?? true,
         before6h: body.before6h ?? true,

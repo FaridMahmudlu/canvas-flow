@@ -1,9 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/db';
+import { registerRateLimiter, getClientIp } from '@/lib/rate-limit';
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(req: NextRequest) {
   try {
+    const clientIp = getClientIp(req);
+    const rateCheck = registerRateLimiter.check(clientIp);
+
+    if (!rateCheck.success) {
+      return NextResponse.json(
+        { error: 'Too many registration attempts. Please try again later.' },
+        { status: 429 }
+      );
+    }
+
     const body = await req.json();
     const { email, password, name } = body;
 
@@ -15,9 +28,16 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanEmail = String(email).toLowerCase().trim();
-    const cleanName = String(name).trim();
+    const cleanName = String(name).trim().slice(0, 100);
 
-    if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+    if (!cleanName) {
+      return NextResponse.json(
+        { error: 'Please enter your name' },
+        { status: 400 }
+      );
+    }
+
+    if (!EMAIL_REGEX.test(cleanEmail)) {
       return NextResponse.json(
         { error: 'Please enter a valid email address' },
         { status: 400 }
@@ -31,14 +51,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (password.length > 128) {
+      return NextResponse.json(
+        { error: 'Password cannot exceed 128 characters' },
+        { status: 400 }
+      );
+    }
+
     // Check if user already exists
     const existing = await prisma.user.findUnique({
       where: { email: cleanEmail },
+      select: { id: true },
     });
 
     if (existing) {
       return NextResponse.json(
-        { error: 'An account with this email already exists' },
+        { error: 'An account with this email already exists. Please sign in.' },
         { status: 409 }
       );
     }

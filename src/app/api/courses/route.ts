@@ -1,36 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { formatSemesterLabel, sortSemesters } from '@/lib/semester';
-import { getCurrentUser } from '@/lib/auth-helpers';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
-async function getTargetUserId(): Promise<string | null> {
-  const sessionUser = await getCurrentUser();
-  if (sessionUser?.id) return sessionUser.id;
-
-  const firstUser = await prisma.user.findFirst({
-    orderBy: { createdAt: 'asc' },
-  });
-
-  return firstUser?.id || null;
-}
-
 /**
- * GET /api/courses — Returns synced courses with task counts, scoped to user, optionally filtered by semester.
+ * GET /api/courses — Returns synced courses with task counts, scoped strictly to the authenticated user.
  */
 export async function GET(request: NextRequest) {
   try {
+    const authRes = await requireAuth();
+    if ('response' in authRes) return authRes.response;
+    const { user } = authRes;
+
     const { searchParams } = request.nextUrl;
     const semester = searchParams.get('semester');
 
-    const targetUserId = await getTargetUserId();
-
-    // Build where clause
-    const where: Record<string, unknown> = {};
-    if (targetUserId) {
-      where.userId = targetUserId;
-    }
+    // Build where clause with strict user scoping
+    const where: Record<string, unknown> = {
+      userId: user.id,
+    };
 
     if (semester && semester !== 'all' && typeof semester === 'string') {
       const cleanSemester = semester.slice(0, 30).trim();
@@ -41,9 +31,9 @@ export async function GET(request: NextRequest) {
 
     const now = new Date();
 
-    // Fetch distinct semesters for this user
+    // Fetch distinct semesters for this user only
     const allCoursesForMeta = await prisma.course.findMany({
-      where: targetUserId ? { userId: targetUserId } : undefined,
+      where: { userId: user.id },
       select: {
         id: true,
         semester: true,

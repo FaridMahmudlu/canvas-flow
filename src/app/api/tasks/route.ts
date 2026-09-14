@@ -8,26 +8,19 @@ import {
   isTaskOverdue,
   isTaskLocked,
 } from '@/lib/tasks/availability';
-import { getCurrentUser } from '@/lib/auth-helpers';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
-async function getTargetUserId(): Promise<string | null> {
-  const sessionUser = await getCurrentUser();
-  if (sessionUser?.id) return sessionUser.id;
-
-  const firstUser = await prisma.user.findFirst({
-    orderBy: { createdAt: 'asc' },
-  });
-
-  return firstUser?.id || null;
-}
-
 /**
- * GET /api/tasks — Returns all tasks with filtering, sorting, search, scoped to authenticated user.
+ * GET /api/tasks — Returns all tasks with filtering, sorting, search, scoped strictly to authenticated user.
  */
 export async function GET(request: NextRequest) {
   try {
+    const authRes = await requireAuth();
+    if ('response' in authRes) return authRes.response;
+    const { user } = authRes;
+
     const { searchParams } = request.nextUrl;
     const statusFilter = searchParams.get('status');
     const courseId = searchParams.get('courseId');
@@ -35,13 +28,11 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search');
     const semester = searchParams.get('semester');
 
-    const targetUserId = await getTargetUserId();
+    // Build where clause with strict user scoping and input sanitization
+    const where: Record<string, unknown> = {
+      userId: user.id,
+    };
 
-    // Build where clause with user scoping and input sanitization
-    const where: Record<string, unknown> = {};
-    if (targetUserId) {
-      where.userId = targetUserId;
-    }
     if (courseId && typeof courseId === 'string' && courseId.length <= 64) {
       where.courseId = courseId;
     }
@@ -139,7 +130,6 @@ export async function GET(request: NextRequest) {
         isSubmitted,
         isOverdue: overdue,
         pointsPossible: task.pointsPossible,
-        sourceType: task.sourceType as 'assignment' | 'quiz' | 'event',
       };
 
       const priority = computePriority(priorityInput, now);
@@ -153,13 +143,13 @@ export async function GET(request: NextRequest) {
         courseId: task.courseId,
         courseName: task.course.name,
         courseCode: task.course.code,
-        semester: task.course.semester,
+        courseSemester: task.course.semester,
         title: task.title,
         description: task.description,
         url: task.htmlUrl,
-        availableAt: task.availableAt?.toISOString() ?? null,
-        dueAt: task.dueAt?.toISOString() ?? null,
-        lockAt: task.lockAt?.toISOString() ?? null,
+        availableAt: task.availableAt ? task.availableAt.toISOString() : null,
+        dueAt: task.dueAt ? task.dueAt.toISOString() : null,
+        lockAt: task.lockAt ? task.lockAt.toISOString() : null,
         isAvailable: available,
         isLocked: locked,
         isOverdue: overdue,
@@ -171,18 +161,16 @@ export async function GET(request: NextRequest) {
         submissionTypes: task.submissionTypes,
         score: task.score,
         grade: task.grade,
-        submission: isSubmitted
-          ? {
-              submittedAt: task.submittedAt?.toISOString() ?? null,
-              attempt: task.attempt,
-              grade: task.grade,
-              score: task.score,
-              workflowState: task.submissionState,
-            }
-          : null,
+        submission: task.submittedAt || task.grade || task.score != null || task.submissionState ? {
+          submittedAt: task.submittedAt ? task.submittedAt.toISOString() : null,
+          attempt: task.attempt,
+          grade: task.grade,
+          score: task.score,
+          workflowState: task.submissionState,
+        } : null,
         lockExplanation: task.lockExplanation,
         quizDetails:
-          task.sourceType === 'quiz'
+          task.quizTimeLimit != null || task.quizAllowedAttempts != null
             ? {
                 timeLimit: task.quizTimeLimit,
                 allowedAttempts: task.quizAllowedAttempts,
@@ -192,43 +180,31 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    let filtered = enrichedTasks;
-    if (statusFilter) {
-      filtered = enrichedTasks.filter((t) => t.status === statusFilter);
-    }
+    // Apply status filter in memory
+    const filteredTasks = statusFilter && statusFilter !== 'all'
+      ? enrichedTasks.filter((t) => t.status === statusFilter)
+      : enrichedTasks;
 
-    filtered.sort((a, b) => {
-      const scoreDiff = b.priorityScore - a.priorityScore;
-      if (scoreDiff !== 0) return scoreDiff;
-      if (a.dueAt && b.dueAt) return new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime();
-      if (a.dueAt) return -1;
-      if (b.dueAt) return 1;
-      return 0;
-    });
-
+    // Calculate aggregated stats
     const stats = {
-      dueSoon: enrichedTasks.filter((t) => t.status === 'due-soon').length,
+      dueSoon: enrichedTasks.filter((t) => (t.status as string) === 'due-soon' || (t.status as string) === 'due_soon').length,
       availableNow: enrichedTasks.filter((t) => t.status === 'available').length,
       overdue: enrichedTasks.filter((t) => t.status === 'overdue').length,
-      submitted: enrichedTasks.filter(
-        (t) => t.status === 'submitted' || t.status === 'completed',
-      ).length,
+      submitted: enrichedTasks.filter((t) => t.status === 'submitted' || t.status === 'completed').length,
       upcoming: enrichedTasks.filter((t) => t.status === 'upcoming').length,
       locked: enrichedTasks.filter((t) => t.status === 'locked').length,
       total: enrichedTasks.length,
     };
 
-    return NextResponse.json(
-      { tasks: filtered, stats },
-      {
-        headers: {
-          'Cache-Control': 'private, no-cache, no-store, must-revalidate',
-        },
-      },
-    );
+    return NextResponse.json({
+      tasks: filteredTasks,
+      stats,
+      total: filteredTasks.length,
+    });
   } catch (error) {
+    console.error('Error in GET /api/tasks:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to fetch tasks' },
+      { error: error instanceof Error ? error.message : 'Internal Server Error' },
       { status: 500 },
     );
   }

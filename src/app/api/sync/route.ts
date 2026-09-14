@@ -1,29 +1,20 @@
 import { NextResponse } from 'next/server';
 import { syncAll, getLastSyncInfo } from '@/lib/sync/engine';
-import { getCurrentUser } from '@/lib/auth-helpers';
-import { prisma } from '@/lib/db';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-async function getTargetUserId(): Promise<string | null> {
-  const sessionUser = await getCurrentUser();
-  if (sessionUser?.id) return sessionUser.id;
-
-  const firstUser = await prisma.user.findFirst({
-    orderBy: { createdAt: 'asc' },
-  });
-
-  return firstUser?.id || null;
-}
 
 /**
  * GET /api/sync — Get last sync status and adaptive controller state for authenticated user
  */
 export async function GET() {
   try {
-    const userId = await getTargetUserId();
-    const { lastSync, syncState, recentRuns } = await getLastSyncInfo(userId || undefined);
+    const authRes = await requireAuth();
+    if ('response' in authRes) return authRes.response;
+    const { user } = authRes;
+
+    const { lastSync, syncState, recentRuns } = await getLastSyncInfo(user.id);
 
     return NextResponse.json({
       lastSync: lastSync
@@ -78,8 +69,11 @@ export async function GET() {
  */
 export async function POST() {
   try {
-    const userId = await getTargetUserId();
-    const result = await syncAll('manual', userId || undefined);
+    const authRes = await requireAuth();
+    if ('response' in authRes) return authRes.response;
+    const { user } = authRes;
+
+    const result = await syncAll('manual', user.id);
     if (!result.success && result.backoffRemainingSec) {
       return NextResponse.json(result, { status: 429 });
     }

@@ -7,30 +7,36 @@ import {
   isTaskOverdue,
   isTaskLocked,
 } from '@/lib/tasks/availability';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/calendar — Returns tasks and events organized by date.
+ * GET /api/calendar — Returns tasks and events organized by date, strictly scoped to authenticated user.
  * Query params:
  *   month (1-12)
  *   year (e.g. 2026)
  */
 export async function GET(request: NextRequest) {
   try {
+    const authRes = await requireAuth();
+    if ('response' in authRes) return authRes.response;
+    const { user } = authRes;
+
     const { searchParams } = request.nextUrl;
     const now = new Date();
 
     const year = parseInt(searchParams.get('year') || String(now.getFullYear()), 10);
     const month = parseInt(searchParams.get('month') || String(now.getMonth() + 1), 10);
 
-    // Calculate start and end of target month (including padding for calendar view)
+    // Calculate start and end of target month
     const startDate = new Date(year, month - 1, 1, 0, 0, 0);
     const endDate = new Date(year, month, 0, 23, 59, 59);
 
-    // Fetch tasks that have dueAt or availableAt within or relevant to the month
+    // Fetch tasks belonging strictly to this user
     const tasks = await prisma.task.findMany({
       where: {
+        userId: user.id,
         OR: [
           {
             dueAt: {

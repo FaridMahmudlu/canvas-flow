@@ -1,63 +1,43 @@
 import { NextResponse } from 'next/server';
-import { getCurrentUser } from '@/lib/auth-helpers';
+import { requireAuth } from '@/lib/auth-helpers';
 import { prisma } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/me — Returns current authenticated user and connected Canvas info.
+ * Strictly scoped to authenticated session user.
  */
 export async function GET() {
   try {
-    const sessionUser = await getCurrentUser();
+    const authRes = await requireAuth();
+    if ('response' in authRes) return authRes.response;
+    const { user } = authRes;
 
-    if (!sessionUser) {
-      // Check if there is any user in DB (for backward compatibility during initial setup)
-      const firstUser = await prisma.user.findFirst({
-        include: {
-          canvasConnections: {
-            where: { isActive: true },
-            take: 1,
-          },
-        },
-        orderBy: { createdAt: 'asc' },
-      });
-
-      if (!firstUser) {
-        return NextResponse.json(
-          { error: 'Unauthorized. Please sign in.' },
-          { status: 401 }
-        );
-      }
-
-      const activeConn = firstUser.canvasConnections[0];
-      return NextResponse.json({
-        user: {
-          id: firstUser.id,
-          name: firstUser.name,
-          email: firstUser.email,
-          avatar_url: firstUser.avatarUrl,
-          hasCanvasConnection: !!activeConn,
-          canvasInstanceUrl: activeConn?.instanceUrl,
-          canvasInstanceName: activeConn?.instanceName,
-        },
-      });
-    }
-
-    // Authenticated user
     const dbUser = await prisma.user.findUnique({
-      where: { id: sessionUser.id },
-      include: {
+      where: { id: user.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        avatarUrl: true,
         canvasConnections: {
           where: { isActive: true },
           take: 1,
+          select: {
+            id: true,
+            instanceUrl: true,
+            instanceName: true,
+            canvasUserName: true,
+            lastVerifiedAt: true,
+          },
         },
       },
     });
 
     if (!dbUser) {
       return NextResponse.json(
-        { error: 'User not found' },
+        { error: 'User account not found' },
         { status: 404 }
       );
     }
@@ -71,15 +51,15 @@ export async function GET() {
         email: dbUser.email,
         avatar_url: dbUser.avatarUrl,
         hasCanvasConnection: !!activeConn,
-        canvasInstanceUrl: activeConn?.instanceUrl,
-        canvasInstanceName: activeConn?.instanceName,
+        canvasInstanceUrl: activeConn?.instanceUrl || null,
+        canvasInstanceName: activeConn?.instanceName || null,
       },
     });
   } catch (error) {
     console.error('Error fetching user profile:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to fetch user' },
-      { status: 500 },
+      { error: 'Failed to fetch user profile' },
+      { status: 500 }
     );
   }
 }

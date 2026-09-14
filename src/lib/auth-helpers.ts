@@ -21,7 +21,30 @@ export interface CanvasConnectionContext {
 }
 
 /**
- * Get current session user, or null if unauthenticated.
+ * Validate and sanitize callbackUrl to prevent Open Redirect vulnerabilities.
+ * Ensures the destination is an internal path and not a protocol-relative
+ * or external URI (e.g. //evil.com or https://evil.com).
+ */
+export function getSafeCallbackUrl(url: string | null | undefined): string {
+  if (!url) return '/';
+  const trimmed = url.trim();
+
+  // Must begin with a single slash, not double slash, and not contain protocol or backslash
+  if (
+    trimmed.startsWith('/') &&
+    !trimmed.startsWith('//') &&
+    !trimmed.startsWith('/\\') &&
+    !trimmed.includes('\\') &&
+    !trimmed.includes(':')
+  ) {
+    return trimmed;
+  }
+
+  return '/';
+}
+
+/**
+ * Get current session user from Auth.js, or null if unauthenticated.
  */
 export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
   try {
@@ -42,7 +65,7 @@ export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
 }
 
 /**
- * Require authentication for API routes. Returns user or a 401 NextResponse.
+ * Require authentication for API route handlers. Returns user or a 401 NextResponse.
  */
 export async function requireAuth(): Promise<{ user: AuthenticatedUser } | { response: NextResponse }> {
   const user = await getCurrentUser();
@@ -55,6 +78,17 @@ export async function requireAuth(): Promise<{ user: AuthenticatedUser } | { res
     };
   }
   return { user };
+}
+
+/**
+ * Require authenticated user or throw error. Useful in server actions or loaders.
+ */
+export async function requireUser(): Promise<AuthenticatedUser> {
+  const user = await getCurrentUser();
+  if (!user) {
+    throw new Error('Unauthorized');
+  }
+  return user;
 }
 
 /**

@@ -19,6 +19,14 @@ export default function RegisterPage() {
     e.preventDefault();
     setError(null);
 
+    const cleanName = name.trim();
+    const cleanEmail = email.toLowerCase().trim();
+
+    if (!cleanName) {
+      setError('Please enter your full name');
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -29,13 +37,18 @@ export default function RegisterPage() {
       return;
     }
 
+    if (password.length > 128) {
+      setError('Password cannot exceed 128 characters');
+      return;
+    }
+
     setLoading(true);
 
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name: cleanName, email: cleanEmail, password }),
       });
 
       const data = await res.json();
@@ -46,14 +59,15 @@ export default function RegisterPage() {
         return;
       }
 
-      // Auto-login after registration
+      // Auto-login after successful registration
       const loginRes = await signIn('credentials', {
-        email,
+        email: cleanEmail,
         password,
         redirect: false,
       });
 
       if (loginRes?.error) {
+        // If auto-login fails, redirect cleanly to login with info
         router.push('/login');
         return;
       }
@@ -84,6 +98,7 @@ export default function RegisterPage() {
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
@@ -109,8 +124,12 @@ export default function RegisterPage() {
           </p>
 
           {error && (
-            <div className="mb-6 p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-sm flex items-center gap-2.5">
-              <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div
+              role="alert"
+              aria-live="polite"
+              className="mb-6 p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-sm flex items-center gap-2.5"
+            >
+              <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <span>{error}</span>
@@ -119,12 +138,18 @@ export default function RegisterPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label
+                htmlFor="register-name"
+                className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5"
+              >
                 Full Name
               </label>
               <input
+                id="register-name"
+                name="name"
                 type="text"
                 required
+                autoComplete="name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Jane Doe"
@@ -133,12 +158,18 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label
+                htmlFor="register-email"
+                className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5"
+              >
                 Email Address
               </label>
               <input
+                id="register-email"
+                name="email"
                 type="email"
                 required
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@university.edu"
@@ -147,12 +178,18 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label
+                htmlFor="register-password"
+                className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5"
+              >
                 Password
               </label>
               <input
+                id="register-password"
+                name="password"
                 type="password"
                 required
+                autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="At least 8 characters"
@@ -161,12 +198,18 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label
+                htmlFor="register-confirm-password"
+                className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5"
+              >
                 Confirm Password
               </label>
               <input
+                id="register-confirm-password"
+                name="confirmPassword"
                 type="password"
                 required
+                autoComplete="new-password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Repeat password"
@@ -181,7 +224,7 @@ export default function RegisterPage() {
             >
               {loading ? (
                 <>
-                  <svg className="animate-spin w-5 h-5 text-white" fill="none" viewBox="0 0 24 24">
+                  <svg className="animate-spin w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" aria-hidden="true">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                   </svg>
