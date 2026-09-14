@@ -163,8 +163,8 @@ export async function canvasRequest<T>(
     method = 'GET',
     body,
     params,
-    timeout = 30000,
-    maxRetries = 3,
+    timeout = 10000, // 10s reasonable timeout prevents hanging scheduler
+    maxRetries = 1, // 1 retry within cycle, then continue safely and retry next cycle
   } = options;
 
   // Build URL with query params
@@ -354,6 +354,7 @@ export async function canvasPaginatedRequest<T>(
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
         },
+        signal: AbortSignal.timeout(10000),
       });
 
       if (!fetchResponse.ok) {
