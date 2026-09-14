@@ -911,17 +911,20 @@ export async function recalculateAllTaskStatuses(now: Date = new Date()): Promis
   }
 
   if (updates.length > 0) {
-    await Promise.all(
-      updates.map((u) =>
-        prisma.task.update({
-          where: { id: u.id },
-          data: {
-            status: u.status,
-            isSubmitted: u.isSubmitted,
-          },
-        }),
-      ),
-    );
+    for (let i = 0; i < updates.length; i += 5) {
+      const chunk = updates.slice(i, i + 5);
+      await Promise.all(
+        chunk.map((u) =>
+          prisma.task.update({
+            where: { id: u.id },
+            data: {
+              status: u.status,
+              isSubmitted: u.isSubmitted,
+            },
+          }),
+        ),
+      );
+    }
   }
 
   return updates.length;

@@ -55,12 +55,36 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
     available: pref?.taskAvailable ?? true,
   };
 
-  // 1. Check unsubmitted tasks with due dates
+  // 1. Pre-load existing idempotency keys into memory in one fast query
+  const existingRecords = await prisma.notification.findMany({
+    where: { idempotencyKey: { not: null } },
+    select: { idempotencyKey: true },
+  });
+  const existingKeys = new Set<string>();
+  for (const r of existingRecords) {
+    if (r.idempotencyKey) {
+      existingKeys.add(r.idempotencyKey);
+    }
+  }
+
+  const toCreate: Array<{
+    taskId: string;
+    type: string;
+    scheduledFor: Date;
+    state: string;
+    idempotencyKey: string;
+  }> = [];
+
+  // 2. Check unsubmitted tasks with due dates
   const activeTasks = await prisma.task.findMany({
     where: {
       isSubmitted: false,
       published: true,
       dueAt: { not: null },
+    },
+    select: {
+      id: true,
+      dueAt: true,
     },
   });
 
@@ -72,19 +96,16 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
     if (config.before24h) {
       const time24h = new Date(dueTime - 24 * 60 * 60 * 1000);
       if (time24h > now) {
-        try {
-          await prisma.notification.create({
-            data: {
-              taskId: task.id,
-              type: '24h',
-              scheduledFor: time24h,
-              state: 'pending',
-              idempotencyKey: `${task.id}_24h_${dueTime}`,
-            },
+        const key = `${task.id}_24h_${dueTime}`;
+        if (!existingKeys.has(key)) {
+          toCreate.push({
+            taskId: task.id,
+            type: '24h',
+            scheduledFor: time24h,
+            state: 'pending',
+            idempotencyKey: key,
           });
-          scheduledCount++;
-        } catch {
-          // Idempotent: unique constraint prevents duplicates
+          existingKeys.add(key);
         }
       }
     }
@@ -93,19 +114,16 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
     if (config.before6h) {
       const time6h = new Date(dueTime - 6 * 60 * 60 * 1000);
       if (time6h > now) {
-        try {
-          await prisma.notification.create({
-            data: {
-              taskId: task.id,
-              type: '6h',
-              scheduledFor: time6h,
-              state: 'pending',
-              idempotencyKey: `${task.id}_6h_${dueTime}`,
-            },
+        const key = `${task.id}_6h_${dueTime}`;
+        if (!existingKeys.has(key)) {
+          toCreate.push({
+            taskId: task.id,
+            type: '6h',
+            scheduledFor: time6h,
+            state: 'pending',
+            idempotencyKey: key,
           });
-          scheduledCount++;
-        } catch {
-          // Unique constraint violation — already scheduled
+          existingKeys.add(key);
         }
       }
     }
@@ -114,70 +132,77 @@ export async function scheduleReminders(now: Date = new Date()): Promise<number>
     if (config.before1h) {
       const time1h = new Date(dueTime - 60 * 60 * 1000);
       if (time1h > now) {
-        try {
-          await prisma.notification.create({
-            data: {
-              taskId: task.id,
-              type: '1h',
-              scheduledFor: time1h,
-              state: 'pending',
-              idempotencyKey: `${task.id}_1h_${dueTime}`,
-            },
+        const key = `${task.id}_1h_${dueTime}`;
+        if (!existingKeys.has(key)) {
+          toCreate.push({
+            taskId: task.id,
+            type: '1h',
+            scheduledFor: time1h,
+            state: 'pending',
+            idempotencyKey: key,
           });
-          scheduledCount++;
-        } catch {
-          // Unique constraint violation — already scheduled
+          existingKeys.add(key);
         }
       }
     }
 
-    // Overdue check
-    if (config.overdue && task.dueAt < now) {
-      try {
-        await prisma.notification.create({
-          data: {
-            taskId: task.id,
-            type: 'overdue',
-            scheduledFor: task.dueAt,
-            state: 'pending',
-            idempotencyKey: `${task.id}_overdue_${dueTime}`,
-          },
+    // Overdue check (only recent tasks within 7 days)
+    const overdueCutoff = now.getTime() - 7 * 24 * 60 * 60 * 1000;
+    if (config.overdue && task.dueAt < now && task.dueAt.getTime() > overdueCutoff) {
+      const key = `${task.id}_overdue_${dueTime}`;
+      if (!existingKeys.has(key)) {
+        toCreate.push({
+          taskId: task.id,
+          type: 'overdue',
+          scheduledFor: task.dueAt,
+          state: 'pending',
+          idempotencyKey: key,
         });
-        scheduledCount++;
-      } catch {
-        // Unique constraint violation — already scheduled
+        existingKeys.add(key);
       }
     }
   }
 
-  // 2. Newly available tasks
+  // 3. Newly available tasks (within past 48 hours)
   if (config.available) {
+    const cutoff48h = new Date(now.getTime() - 48 * 60 * 60 * 1000);
     const newlyAvailableTasks = await prisma.task.findMany({
       where: {
         published: true,
         availableAt: {
           lte: now,
+          gte: cutoff48h,
         },
+      },
+      select: {
+        id: true,
+        availableAt: true,
       },
     });
 
     for (const task of newlyAvailableTasks) {
       if (!task.availableAt) continue;
-      try {
-        await prisma.notification.create({
-          data: {
-            taskId: task.id,
-            type: 'available',
-            scheduledFor: task.availableAt,
-            state: 'pending',
-            idempotencyKey: `${task.id}_available_${task.availableAt.getTime()}`,
-          },
+      const key = `${task.id}_available_${task.availableAt.getTime()}`;
+      if (!existingKeys.has(key)) {
+        toCreate.push({
+          taskId: task.id,
+          type: 'available',
+          scheduledFor: task.availableAt,
+          state: 'pending',
+          idempotencyKey: key,
         });
-        scheduledCount++;
-      } catch {
-        // Unique constraint violation — already scheduled
+        existingKeys.add(key);
       }
     }
+  }
+
+  // 4. Batch insert all new notifications in one round-trip
+  if (toCreate.length > 0) {
+    const res = await prisma.notification.createMany({
+      data: toCreate,
+      skipDuplicates: true,
+    });
+    scheduledCount = res.count;
   }
 
   return scheduledCount;
