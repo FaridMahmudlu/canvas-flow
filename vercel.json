@@ -9,5 +9,10 @@
       "path": "/api/cron/notifications",
       "schedule": "0 5 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "src/app/api/**/*": {
+      "maxDuration": 60
+    }
+  }
 }

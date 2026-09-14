@@ -34,8 +34,8 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
   let newTasks = 0;
   let updatedTasks = 0;
 
-  // 1. Concurrency Lock: check for a running sync started in the last 2 minutes
-  const lockExpiryThreshold = new Date(Date.now() - 2 * 60 * 1000);
+  // 1. Concurrency Lock: check for a running sync started in the last 30 seconds
+  const lockExpiryThreshold = new Date(Date.now() - 30 * 1000);
   const activeRunningSync = await prisma.syncRun.findFirst({
     where: {
       status: 'running',
@@ -95,12 +95,18 @@ export async function syncAll(triggeredBy: string = 'manual'): Promise<SyncResul
     const courses = await syncCourses();
     coursesCount = courses.length;
 
-    // 4. Sync assignments and quizzes for each course
-    for (const course of courses) {
-      const result = await syncCourseContent(course.id, course.canvasCourseId);
-      tasksCount += result.total;
-      newTasks += result.new;
-      updatedTasks += result.updated;
+    // 4. Sync assignments and quizzes for each course concurrently in batches of 6
+    const BATCH_SIZE = 6;
+    for (let i = 0; i < courses.length; i += BATCH_SIZE) {
+      const batch = courses.slice(i, i + BATCH_SIZE);
+      const results = await Promise.all(
+        batch.map((course) => syncCourseContent(course.id, course.canvasCourseId)),
+      );
+      for (const res of results) {
+        tasksCount += res.total;
+        newTasks += res.new;
+        updatedTasks += res.updated;
+      }
     }
 
     // 5. Recalculate statuses for all tasks based on current time
@@ -293,11 +299,7 @@ async function syncCourseContent(
       };
     }
 
-    if (
-      !quizSubmission ||
-      quizSubmission.workflow_state === 'untaken' ||
-      quizSubmission.workflow_state === 'unsubmitted'
-    ) {
+    if (!matchingAssignment && !quizSubmission) {
       try {
         const directSubmissions = await getQuizSubmissions(canvasCourseId, quiz.id);
         if (directSubmissions.length > 0) {
