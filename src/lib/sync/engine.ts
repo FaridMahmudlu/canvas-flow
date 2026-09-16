@@ -81,14 +81,16 @@ async function autoMigrateLegacyConnection(): Promise<void> {
     });
 
     for (const user of targetUsers) {
-      await prisma.canvasConnection.upsert({
-        where: {
-          userId_instanceUrl: {
-            userId: user.id,
-            instanceUrl: baseUrl,
-          },
-        },
-        create: {
+      // Never overwrite an existing connection configured by the user
+      const existingConn = await prisma.canvasConnection.findFirst({
+        where: { userId: user.id },
+      });
+      if (existingConn) {
+        continue;
+      }
+
+      await prisma.canvasConnection.create({
+        data: {
           userId: user.id,
           instanceUrl: baseUrl,
           instanceName: 'ELTE Canvas',
@@ -97,14 +99,6 @@ async function autoMigrateLegacyConnection(): Promise<void> {
           tokenTag: tag,
           canvasUserId: 344666,
           canvasUserName: user.name || 'Mahmudlu Farid (SEK2L3)',
-          isActive: true,
-          lastVerifiedAt: new Date(),
-        },
-        update: {
-          instanceName: 'ELTE Canvas',
-          encryptedToken: encrypted,
-          tokenIv: iv,
-          tokenTag: tag,
           isActive: true,
           lastVerifiedAt: new Date(),
         },
@@ -317,8 +311,8 @@ async function syncSingleUser(
         baseUrl: connContext.baseUrl,
         token: connContext.token,
       };
-    } else if (process.env.CANVAS_TOKEN) {
-      // Dev / legacy fallback
+    } else if (process.env.NODE_ENV !== 'production' && process.env.CANVAS_TOKEN) {
+      // Dev / local fallback only
       canvasContext = {
         baseUrl: process.env.CANVAS_BASE_URL || 'https://canvas.elte.hu',
         token: process.env.CANVAS_TOKEN,

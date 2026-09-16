@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Logo } from '@/components/brand/logo';
 
 const POPULAR_INSTITUTIONS = [
   { name: 'ELTE (Eötvös Loránd University)', url: 'https://canvas.elte.hu' },
@@ -68,23 +69,11 @@ export default function ConnectCanvasPage() {
 
       <div className="relative w-full max-w-xl z-10">
         {/* Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 shadow-xl shadow-blue-500/25 mb-4 border border-white/10">
-            <svg
-              className="w-8 h-8 text-white"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-              />
-            </svg>
-          </div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tight">
+        <div className="text-center mb-8 flex flex-col items-center">
+          <Link href="/" className="inline-block mb-6 hover:opacity-95 transition">
+            <Logo size="lg" badge="LINK" />
+          </Link>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
             Connect Canvas LMS
           </h1>
           <p className="text-slate-400 text-sm mt-1.5">
