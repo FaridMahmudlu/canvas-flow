@@ -38,9 +38,9 @@ export function SemesterSelector({
         </div>
       </div>
 
-      {/* Semester pill buttons — horizontally scrollable strictly inside container on small screens */}
-      <div className="w-full md:w-auto min-w-0 max-w-full relative">
-        <div className="w-full min-w-0 max-w-full flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-none touch-pan-x">
+      {/* Semester pill buttons — wrapping responsively so no pill is clipped */}
+      <div className="w-full md:w-auto min-w-0 max-w-full">
+        <div className="w-full min-w-0 max-w-full flex flex-wrap items-center gap-2">
           {semesters.map((sem) => {
             const isSelected = selectedSemester === sem.id;
             return (
@@ -49,13 +49,13 @@ export function SemesterSelector({
                 onClick={() => onSelectSemester(sem.id)}
                 disabled={isLoading}
                 title={sem.label}
-                className={`shrink-0 group relative inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all duration-150 disabled:opacity-60 active:scale-98 cursor-pointer ${
+                className={`group relative inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 rounded-xl text-xs font-semibold transition-all duration-150 disabled:opacity-60 active:scale-98 cursor-pointer ${
                   isSelected
                     ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs ring-1 ring-indigo-500'
                     : 'bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
                 }`}
               >
-                <span className="truncate max-w-[140px] sm:max-w-none">{sem.label}</span>
+                <span>{sem.label}</span>
                 {sem.isCurrent && (
                   <span
                     className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${

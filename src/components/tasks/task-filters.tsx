@@ -71,24 +71,21 @@ export function TaskFilters({
 
       {/* Filter tabs & Course Selector */}
       <div className="w-full min-w-0 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3">
-        {/* Status filter tabs (horizontally scrollable strictly inside container on mobile) */}
-        <div className="w-full sm:w-auto min-w-0 max-w-full flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none touch-pan-x bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-1.5 shadow-2xs">
-          {filterTabs.map((tab) => {
-            const isActive = activeFilter === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => onFilterChange(tab.id)}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
-                  isActive
-                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs'
-                    : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
+        {/* Status filter tabs (wrapping responsively so no filter is clipped) */}
+        <div className="w-full sm:w-auto min-w-0 max-w-full flex flex-wrap items-center gap-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-1.5 shadow-2xs">
+          {filterTabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => onFilterChange(tab.id)}
+              className={`px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                activeFilter === tab.id
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs'
+                  : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
         {/* Course Dropdown */}

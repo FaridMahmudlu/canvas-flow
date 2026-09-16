@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Header } from '@/components/layout/header';
+import { MobileNav } from '@/components/layout/mobile-nav';
 import { formatSyncAge } from '@/lib/dates';
 
 interface HealthCanvasResponse {
@@ -188,13 +189,17 @@ export default function DebugPage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-[var(--color-bg)]">
+    <div className="flex min-h-screen w-full max-w-full bg-[var(--color-bg)] overflow-x-clip">
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} activePage="debug" />
 
-      <main className={`flex-1 transition-all duration-300 ml-0 ${sidebarOpen ? 'md:ml-64' : 'md:ml-16'} pb-24 md:pb-8`}>
+      <main
+        className={`flex-1 w-full min-w-0 max-w-full pb-28 md:pb-8 transition-all duration-300 ${
+          sidebarOpen ? 'md:ml-64' : 'md:ml-20'
+        } ml-0`}
+      >
         <Header lastSynced={lastSync?.completedAt || null} syncing={syncing} onSync={handleManualSync} />
 
-        <div className="max-w-6xl mx-auto px-6 py-8">
+        <div className="w-full max-w-6xl mx-auto px-3.5 sm:px-6 py-5 sm:py-8">
           <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
@@ -526,6 +531,8 @@ export default function DebugPage() {
           </div>
         </div>
       </main>
+
+      <MobileNav activePage="debug" />
     </div>
   );
 }

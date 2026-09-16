@@ -110,14 +110,6 @@ export function Sidebar({ open, onToggle, activePage }: SidebarProps) {
           </svg>
         </button>
       </aside>
-
-      {/* Mobile overlay */}
-      {open && (
-        <div
-          className="fixed inset-0 bg-black/20 z-30 lg:hidden"
-          onClick={onToggle}
-        />
-      )}
     </>
   );
 }

@@ -24,28 +24,38 @@ const mobileItems = [
 
 export function MobileNav({ activePage }: MobileNavProps) {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[var(--color-surface)]/95 backdrop-blur-lg border-t border-[var(--color-border)] md:hidden px-2 pt-2 pb-[max(0.625rem,env(safe-area-inset-bottom))] shadow-lg">
-      <div className="flex items-center justify-around">
+    <nav
+      aria-label="Mobile menu"
+      className="fixed bottom-0 left-0 right-0 z-40 bg-[var(--color-surface)] border-t border-[var(--color-border)] md:hidden px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_24px_rgba(0,0,0,0.07)]"
+    >
+      <div className="flex items-center justify-around max-w-md mx-auto">
         {mobileItems.map((item) => {
           const isActive = activePage === item.id;
           return (
             <Link
               key={item.id}
               href={item.href}
-              className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all duration-150 ${
+              aria-current={isActive ? 'page' : undefined}
+              className={`flex flex-col items-center justify-center py-1 px-3 min-w-[56px] min-h-[44px] rounded-2xl transition-all duration-150 active:scale-95 cursor-pointer ${
                 isActive
-                  ? 'text-indigo-600 dark:text-indigo-400 font-semibold scale-105'
-                  : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text)]'
+                  ? 'text-indigo-600 dark:text-indigo-400 font-bold'
+                  : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)]'
               }`}
             >
               <div
-                className={`p-1 rounded-lg transition-colors ${
-                  isActive ? 'bg-indigo-500/10' : 'bg-transparent'
+                className={`p-1.5 rounded-xl transition-all duration-200 ${
+                  isActive
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/30 scale-105'
+                    : 'bg-transparent text-current'
                 }`}
               >
-                <item.icon className="w-5 h-5" />
+                <item.icon className="w-4.5 h-4.5" />
               </div>
-              <span className="text-[10px] mt-0.5 tracking-tight font-medium">
+              <span
+                className={`text-[10px] mt-1 tracking-tight ${
+                  isActive ? 'font-bold text-indigo-600 dark:text-indigo-400' : 'font-medium opacity-90'
+                }`}
+              >
                 {item.label}
               </span>
             </Link>
