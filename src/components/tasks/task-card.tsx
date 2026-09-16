@@ -122,24 +122,24 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left bg-[var(--color-surface)] border rounded-2xl p-4 sm:p-5 transition-all duration-200 group focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] hover:shadow-md ${
+      className={`w-full min-w-0 max-w-full text-left bg-[var(--color-surface)] border rounded-2xl p-3.5 sm:p-5 transition-all duration-200 group focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] hover:shadow-xs cursor-pointer overflow-hidden ${
         isCompletedOrSubmitted
           ? 'border-emerald-500/20 hover:border-emerald-500/40'
           : 'border-[var(--color-border)] hover:border-[var(--color-primary-border)]'
       }`}
     >
-      <div className="flex items-start gap-3 sm:gap-4">
+      <div className="flex items-start gap-2.5 sm:gap-4 min-w-0">
         {/* Priority / Completed accent bar */}
         <div
-          className="w-1.5 self-stretch min-h-12 rounded-full flex-shrink-0 mt-0.5 transition-colors"
+          className="w-1 sm:w-1.5 self-stretch min-h-10 sm:min-h-12 rounded-full flex-shrink-0 mt-0.5 transition-colors"
           style={{ backgroundColor: priorityColor }}
         />
 
         {/* Main Content */}
         <div className="flex-1 min-w-0">
           {/* Header Row: Course info + Status & Attempt badges */}
-          <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
-            <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center justify-between gap-1.5 sm:gap-2 mb-1.5 flex-wrap min-w-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
               {/* Type icon */}
               <div
                 className={`p-1 rounded-lg shrink-0 ${
@@ -156,16 +156,16 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
               </div>
 
               {/* Course name */}
-              <span className="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wide truncate max-w-[220px] sm:max-w-xs md:max-w-md">
+              <span className="text-[11px] sm:text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wide truncate max-w-[140px] xs:max-w-[180px] sm:max-w-xs md:max-w-md">
                 {task.courseName}
               </span>
             </div>
 
             {/* Badges container */}
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
               {/* Attempt pill */}
               {isCompletedOrSubmitted && attempt && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-[var(--color-surface-hover)] text-[var(--color-text-secondary)] border border-[var(--color-border)]">
+                <span className="text-[9.5px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full font-medium bg-[var(--color-surface-hover)] text-[var(--color-text-secondary)] border border-[var(--color-border)]">
                   Attempt {attempt}
                 </span>
               )}
@@ -179,7 +179,7 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
 
               {/* Status badge */}
               <span
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold shadow-2xs"
+                className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-2xs"
                 style={{
                   backgroundColor: status.bg,
                   color: status.color,
@@ -203,61 +203,61 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
           </div>
 
           {/* Title */}
-          <h3 className="text-sm sm:text-base font-semibold text-[var(--color-text)] group-hover:text-[var(--color-primary)] transition-colors line-clamp-2">
+          <h3 className="text-xs sm:text-base font-semibold text-[var(--color-text)] group-hover:text-[var(--color-primary)] transition-colors line-clamp-2 leading-snug">
             {task.title}
           </h3>
 
           {/* Bottom Meta Row */}
-          <div className="flex items-center justify-between gap-3 mt-2.5 pt-2 border-t border-[var(--color-border)]/50 text-xs text-[var(--color-text-secondary)] flex-wrap">
-            <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center justify-between gap-2 sm:gap-3 mt-2 pt-2 border-t border-[var(--color-border)]/50 text-[11px] sm:text-xs text-[var(--color-text-secondary)] flex-wrap min-w-0">
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap min-w-0">
               {/* Due date or submission timestamp */}
               {isCompletedOrSubmitted && task.submission?.submittedAt ? (
-                <span className="text-emerald-600 dark:text-emerald-400 font-medium inline-flex items-center gap-1">
+                <span className="text-emerald-600 dark:text-emerald-400 font-medium inline-flex items-center gap-1 truncate">
                   <span>Submitted {formatDateTime(task.submission.submittedAt)}</span>
                 </span>
               ) : deadlineText ? (
                 <span
-                  className={`inline-flex items-center gap-1 ${
+                  className={`inline-flex items-center gap-1 truncate ${
                     task.isOverdue && !isCompletedOrSubmitted
                       ? 'text-[var(--color-danger-text)] font-semibold'
                       : 'text-[var(--color-text-secondary)]'
                   }`}
                 >
                   <ClockIcon className="w-3.5 h-3.5 shrink-0 opacity-75" />
-                  <span>{deadlineText}</span>
+                  <span className="truncate">{deadlineText}</span>
                 </span>
               ) : null}
 
               {/* Availability */}
               {availabilityText && !isCompletedOrSubmitted && (
-                <span className="text-[var(--color-text-tertiary)]">
+                <span className="text-[var(--color-text-tertiary)] truncate">
                   {availabilityText}
                 </span>
               )}
             </div>
 
             {/* Score & Points Display */}
-            <div className="flex items-center gap-2 shrink-0 ml-auto">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
               {isCompletedOrSubmitted && earnedScore != null ? (
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 font-bold text-xs shadow-2xs">
-                  <ScoreMedalIcon className="w-3.5 h-3.5" />
+                <div className="inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 font-bold text-[11px] sm:text-xs shadow-2xs">
+                  <ScoreMedalIcon className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                   <span>
                     {earnedScore}
                     {points != null ? ` / ${points} pts` : ' pts'}
                   </span>
                   {points != null && points > 0 && (
-                    <span className="text-[10px] font-normal opacity-85 ml-0.5">
+                    <span className="text-[9.5px] sm:text-[10px] font-normal opacity-85 ml-0.5">
                       ({Math.round((earnedScore / points) * 100)}%)
                     </span>
                   )}
                 </div>
               ) : points != null && points > 0 ? (
-                <span className="font-semibold text-[var(--color-text-tertiary)] bg-[var(--color-surface-hover)] px-2 py-0.5 rounded-md text-xs border border-[var(--color-border)]">
+                <span className="font-semibold text-[var(--color-text-tertiary)] bg-[var(--color-surface-hover)] px-2 py-0.5 rounded-md text-[11px] sm:text-xs border border-[var(--color-border)]">
                   {points} pts
                 </span>
               ) : null}
 
-              <ChevronRightIcon className="w-4 h-4 text-[var(--color-text-tertiary)] group-hover:text-[var(--color-primary)] transition-transform group-hover:translate-x-0.5" />
+              <ChevronRightIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[var(--color-text-tertiary)] group-hover:text-[var(--color-primary)] transition-transform group-hover:translate-x-0.5" />
             </div>
           </div>
         </div>

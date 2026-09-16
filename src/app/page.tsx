@@ -259,11 +259,11 @@ export default function DashboardPage() {
     selectedSemester !== 'all' ? activeSemester?.label || selectedSemester : undefined;
 
   return (
-    <div className="flex min-h-screen bg-[var(--color-bg)]">
+    <div className="flex min-h-screen w-full max-w-full bg-[var(--color-bg)] overflow-x-clip">
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} activePage="dashboard" />
 
       <main
-        className={`flex-1 pb-24 md:pb-8 transition-all duration-300 ${
+        className={`flex-1 w-full min-w-0 max-w-full pb-24 md:pb-8 transition-all duration-300 ${
           sidebarOpen ? 'md:ml-64' : 'md:ml-20'
         } ml-0`}
       >
@@ -273,7 +273,7 @@ export default function DashboardPage() {
           onSync={handleSync}
         />
 
-        <div className="max-w-6xl mx-auto px-6 py-8">
+        <div className="w-full max-w-6xl mx-auto px-3.5 sm:px-6 py-5 sm:py-8">
           <Greeting semesterLabel={greetingSemesterLabel} />
 
           <SemesterSelector

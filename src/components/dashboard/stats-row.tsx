@@ -75,35 +75,35 @@ export function StatsRow({ stats, loading }: StatsRowProps) {
   ];
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-8">
+    <div className="w-full min-w-0 max-w-full grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 mb-6 sm:mb-8">
       {statCards.map((card) => {
         const IconComponent = card.icon;
         return (
           <div
             key={card.key}
-            className={`rounded-2xl border ${card.border} ${card.bg} p-4 sm:p-5 transition-all duration-200 hover:shadow-sm hover:scale-[1.01]`}
+            className={`rounded-2xl border ${card.border} ${card.bg} p-3 sm:p-5 transition-all duration-200 hover:shadow-xs min-w-0 overflow-hidden`}
           >
             {loading ? (
               <div className="space-y-2">
-                <div className="skeleton h-8 w-16 rounded-lg" />
-                <div className="skeleton h-4 w-24 rounded-md" />
+                <div className="skeleton h-7 sm:h-8 w-14 sm:w-16 rounded-lg" />
+                <div className="skeleton h-3.5 sm:h-4 w-20 sm:w-24 rounded-md" />
               </div>
             ) : (
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className={`text-2xl sm:text-3xl font-extrabold tracking-tight ${card.color}`}>
+              <div className="flex items-start justify-between gap-1.5 sm:gap-2 min-w-0">
+                <div className="min-w-0 flex-1">
+                  <div className={`text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight ${card.color}`}>
                     {card.count}
                   </div>
-                  <div className="text-xs sm:text-sm font-semibold text-[var(--color-text)] mt-0.5">
+                  <div className="text-xs sm:text-sm font-semibold text-[var(--color-text)] mt-0.5 truncate">
                     {card.label}
                   </div>
-                  <div className="text-[11px] text-[var(--color-text-tertiary)] font-medium mt-0.5 truncate">
+                  <div className="text-[10px] sm:text-[11px] text-[var(--color-text-tertiary)] font-medium mt-0.5 truncate">
                     {card.subtitle}
                   </div>
                 </div>
 
-                <div className={`w-9 h-9 rounded-xl ${card.iconBg} flex items-center justify-center shrink-0`}>
-                  <IconComponent className="w-5 h-5" />
+                <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl ${card.iconBg} flex items-center justify-center shrink-0`}>
+                  <IconComponent className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
               </div>
             )}

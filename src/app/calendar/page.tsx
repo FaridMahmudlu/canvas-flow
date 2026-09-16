@@ -158,17 +158,17 @@ export default function CalendarPage() {
   const selectedTasks = selectedDate ? itemsByDate[selectedDate] || [] : [];
 
   return (
-    <div className="flex min-h-screen bg-[var(--color-bg)]">
+    <div className="flex min-h-screen w-full max-w-full bg-[var(--color-bg)] overflow-x-clip">
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} activePage="calendar" />
 
       <main
-        className={`flex-1 pb-24 md:pb-8 transition-all duration-300 ${
+        className={`flex-1 w-full min-w-0 max-w-full pb-24 md:pb-8 transition-all duration-300 ${
           sidebarOpen ? 'md:ml-64' : 'md:ml-20'
         } ml-0`}
       >
         <Header lastSynced={lastSynced} syncing={syncing} onSync={handleSync} />
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        <div className="w-full max-w-7xl mx-auto px-3.5 sm:px-6 py-5 sm:py-8">
           {/* Header Controls */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
             <div>

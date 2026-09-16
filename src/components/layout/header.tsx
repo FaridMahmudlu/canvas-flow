@@ -34,17 +34,17 @@ export function Header({ lastSynced, syncing, onSync }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-30 bg-[var(--color-surface)]/85 backdrop-blur-md border-b border-[var(--color-border)] shadow-xs">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+      <div className="w-full max-w-6xl mx-auto px-3 sm:px-6 h-15 sm:h-16 flex items-center justify-between gap-2 sm:gap-3 min-w-0">
         {/* Left — Brand context on mobile */}
-        <div className="flex items-center md:hidden">
-          <Link href="/">
+        <div className="flex items-center md:hidden min-w-0 shrink-0">
+          <Link href="/" className="flex items-center min-w-0">
             <Logo size="sm" showSubtitle={false} />
           </Link>
         </div>
         <div className="hidden md:block" />
 
         {/* Right — Developer GitHub, Sync controls & User Account */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           {/* GitHub Developer & Repository Badge */}
           <a
             href="https://github.com/FaridMahmudlu/canvas-flow"
@@ -52,11 +52,11 @@ export function Header({ lastSynced, syncing, onSync }: HeaderProps) {
             rel="noopener noreferrer"
             title="CanvasFlow GitHub Repository • Created by Developer Farid Mahmudlu"
             aria-label="View CanvasFlow GitHub Repository by developer Farid Mahmudlu"
-            className="group relative flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] border border-[var(--color-border)] hover:border-indigo-500/40 text-[var(--color-text)] transition-all duration-200 shadow-2xs hover:shadow-md hover:shadow-indigo-500/10 cursor-pointer"
+            className="group relative flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 rounded-xl text-xs font-medium bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] border border-[var(--color-border)] hover:border-indigo-500/40 text-[var(--color-text)] transition-all duration-200 shadow-2xs hover:shadow-md hover:shadow-indigo-500/10 cursor-pointer shrink-0"
           >
             <GitHubIcon className="w-4 h-4 text-[var(--color-text-secondary)] group-hover:text-white transition-colors flex-shrink-0" />
 
-            <div className="hidden sm:flex items-center gap-1.5 min-w-0">
+            <div className="hidden md:flex items-center gap-1.5 min-w-0">
               <span className="font-semibold tracking-tight text-[var(--color-text)] group-hover:text-indigo-400 transition-colors">
                 GitHub
               </span>
@@ -69,12 +69,12 @@ export function Header({ lastSynced, syncing, onSync }: HeaderProps) {
               </span>
             </div>
 
-            <ExternalLinkIcon className="w-3 h-3 text-[var(--color-text-tertiary)] group-hover:text-indigo-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all flex-shrink-0" />
+            <ExternalLinkIcon className="hidden md:block w-3 h-3 text-[var(--color-text-tertiary)] group-hover:text-indigo-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all flex-shrink-0" />
           </a>
 
           {/* Sync age with active indicator */}
           {lastSynced && (
-            <div className="hidden md:flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
+            <div className="hidden lg:flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20 animate-pulse" />
               <span>Synced {formatSyncAge(lastSynced)}</span>
             </div>
@@ -85,19 +85,20 @@ export function Header({ lastSynced, syncing, onSync }: HeaderProps) {
             onClick={onSync}
             disabled={syncing}
             aria-label="Synchronize Canvas tasks"
-            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-sm shadow-indigo-500/20 hover:shadow-md transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed active:scale-95 cursor-pointer"
+            className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-sm shadow-indigo-500/20 hover:shadow-md transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed active:scale-95 cursor-pointer shrink-0"
           >
             <SyncOrbitIcon
-              className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`}
+              className={`w-3.5 h-3.5 shrink-0 ${syncing ? 'animate-spin' : ''}`}
             />
-            <span>{syncing ? 'Syncing…' : 'Sync Now'}</span>
+            <span className="hidden sm:inline">{syncing ? 'Syncing…' : 'Sync Now'}</span>
+            <span className="sm:hidden">{syncing ? '…' : 'Sync'}</span>
           </button>
 
           {/* User Profile & Dropdown */}
-          <div className="relative" ref={dropdownRef}>
+          <div className="relative shrink-0" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 border border-white/10 flex items-center justify-center text-xs font-bold text-white shadow-sm hover:ring-2 hover:ring-blue-500/30 transition cursor-pointer select-none"
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 border border-white/10 flex items-center justify-center text-xs font-bold text-white shadow-sm hover:ring-2 hover:ring-blue-500/30 transition cursor-pointer select-none"
               aria-label="User menu"
             >
               {session?.user?.image ? (

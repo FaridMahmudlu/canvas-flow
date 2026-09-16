@@ -76,13 +76,13 @@ export function TaskDetailDrawer({ task, onClose }: TaskDetailDrawerProps) {
         tabIndex={-1}
         role="dialog"
         aria-label={`Task details: ${task.title}`}
-        className="fixed right-0 top-0 h-full w-full max-w-lg md:max-w-xl bg-[var(--color-surface)] border-l border-[var(--color-border)] shadow-2xl z-50 flex flex-col focus:outline-none animate-slideIn"
+        className="fixed right-0 top-0 h-full h-[100dvh] w-full max-w-lg md:max-w-xl bg-[var(--color-surface)] border-l border-[var(--color-border)] shadow-2xl z-50 flex flex-col focus:outline-none animate-slideIn"
       >
         {/* Header */}
-        <div className="sticky top-0 bg-[var(--color-surface)]/90 backdrop-blur-md border-b border-[var(--color-border)] px-6 py-4 flex items-center justify-between z-10">
+        <div className="sticky top-0 bg-[var(--color-surface)]/90 backdrop-blur-md border-b border-[var(--color-border)] px-4 sm:px-6 py-3.5 sm:py-4 pt-[max(0.875rem,env(safe-area-inset-top))] flex items-center justify-between z-10">
           <div className="flex items-center gap-2">
             <span
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+              className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-xs font-semibold ${
                 isCompletedOrSubmitted
                   ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
                   : task.status === 'overdue'
@@ -98,24 +98,19 @@ export function TaskDetailDrawer({ task, onClose }: TaskDetailDrawerProps) {
               ) : (
                 <>
                   <ClockIcon className="w-3.5 h-3.5" />
-                  <span className="capitalize">{task.status}</span>
+                  <span>{task.status === 'overdue' ? 'Overdue' : 'Due Soon'}</span>
                 </>
               )}
             </span>
 
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-[var(--color-surface-hover)] text-[var(--color-text-tertiary)] uppercase tracking-wider flex items-center gap-1 border border-[var(--color-border)]">
-              {task.sourceType === 'quiz' ? (
-                <QuizTabletIcon className="w-3 h-3 text-amber-500" />
-              ) : (
-                <AssignmentDocIcon className="w-3 h-3 text-blue-500" />
-              )}
-              <span>{task.sourceType}</span>
+            <span className="text-xs text-[var(--color-text-tertiary)] hidden sm:inline">
+              ID: {task.canvasId}
             </span>
           </div>
 
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-[var(--color-surface-hover)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-[var(--color-surface-hover)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
             aria-label="Close"
           >
             <CloseIcon className="w-5 h-5" />
@@ -123,9 +118,9 @@ export function TaskDetailDrawer({ task, onClose }: TaskDetailDrawerProps) {
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
           {/* Course Badge */}
-          <div className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+          <div className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider truncate">
             {task.courseName}
             {task.courseCode && <span className="ml-1 opacity-70">· {task.courseCode}</span>}
           </div>

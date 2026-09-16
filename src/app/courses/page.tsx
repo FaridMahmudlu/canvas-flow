@@ -78,50 +78,60 @@ export default function CoursesPage() {
   });
 
   return (
-    <div className="flex min-h-screen bg-[var(--color-bg)]">
+    <div className="flex min-h-screen w-full max-w-full bg-[var(--color-bg)] overflow-x-clip">
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} activePage="courses" />
 
       <main
-        className={`flex-1 pb-24 md:pb-8 transition-all duration-300 ${
+        className={`flex-1 w-full min-w-0 max-w-full pb-24 md:pb-8 transition-all duration-300 ${
           sidebarOpen ? 'md:ml-64' : 'md:ml-20'
         } ml-0`}
       >
         <Header lastSynced={lastSynced} syncing={syncing} onSync={handleSync} />
 
-        <div className="max-w-6xl mx-auto px-6 py-8">
+        <div className="w-full max-w-6xl mx-auto px-3.5 sm:px-6 py-5 sm:py-8">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
             <div>
               <h1 className="text-2xl font-bold text-[var(--color-text)]">My Courses</h1>
               <p className="text-sm text-[var(--color-text-secondary)] mt-1">
-                Active ELTE Canvas courses and their current assignment workloads
+                Active Canvas courses and their current assignment workloads
               </p>
             </div>
 
             <div className="w-full sm:w-72">
               <input
                 type="text"
-                placeholder="Search courses..."
+                placeholder="Search courses…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full px-3.5 py-2 text-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] transition-all shadow-sm"
+                className="w-full px-3.5 py-2 text-sm rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-2xs"
               />
             </div>
           </div>
 
           {/* Semester Filter Tabs */}
           {semesters.length > 1 && (
-            <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-1">
+            <div className="w-full min-w-0 max-w-full flex items-center gap-2 overflow-x-auto pb-2 mb-6 scrollbar-none touch-pan-x">
+              <button
+                onClick={() => setSelectedSemester('all')}
+                className={`shrink-0 px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-all ${
+                  selectedSemester === 'all'
+                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs'
+                    : 'bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] border border-[var(--color-border)]'
+                }`}
+              >
+                All Semesters
+              </button>
               {semesters.map((sem) => (
                 <button
                   key={sem.id}
                   onClick={() => setSelectedSemester(sem.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  className={`shrink-0 px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-all ${
                     selectedSemester === sem.id
-                      ? 'bg-[var(--color-primary)] text-white shadow-sm'
-                      : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs'
+                      : 'bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] border border-[var(--color-border)]'
                   }`}
                 >
-                  {sem.label}
+                  <span>{sem.label}</span>
                   {typeof sem.courseCount === 'number' && (
                     <span className="ml-1.5 opacity-75">({sem.courseCount})</span>
                   )}
