@@ -92,7 +92,7 @@ export function getCanvasConfig(overrideContext?: CanvasContext | null) {
 
 // ─── Pagination Parser ────────────────────────────────────────────────
 
-function parseLinkHeader(header: string | null): CanvasPaginationLinks {
+export function parseLinkHeader(header: string | null): CanvasPaginationLinks {
   if (!header) return {};
 
   const links: CanvasPaginationLinks = {};
@@ -222,8 +222,11 @@ export async function canvasRequest<T>(
     maxRetries = 1,
   } = options;
 
-  // Build URL with query params
-  const url = new URL(`/api/v1${path}`, baseUrl);
+  // Build URL: support absolute pagination URLs directly, or resolve relative paths against baseUrl
+  const url = path.startsWith('http://') || path.startsWith('https://')
+    ? new URL(path)
+    : new URL(path.startsWith('/api/v1') ? path : `/api/v1${path.startsWith('/') ? path : `/${path}`}`, baseUrl);
+
   if (params) {
     for (const [key, value] of Object.entries(params)) {
       if (value === undefined) continue;
@@ -361,49 +364,27 @@ export async function canvasPaginatedRequest<T>(
   options: CanvasRequestOptions = {},
 ): Promise<T[]> {
   const allData: T[] = [];
-  const { baseUrl, token } = getCanvasConfig(options.context);
-
   const params = { ...options.params, per_page: options.params?.per_page ?? '100' };
 
-  let currentPath: string | null = path;
-  let isFullUrl = false;
+  let currentTarget: string | null = path;
+  let isFirstPage = true;
 
-  while (currentPath) {
-    let response: CanvasResponse<T[]>;
+  while (currentTarget) {
+    // First page uses options.params; subsequent pages already include query params in Link header
+    const response: CanvasResponse<T[]> = await canvasRequest<T[]>(
+      currentTarget,
+      isFirstPage ? { ...options, params } : { ...options, params: undefined },
+    );
 
-    if (isFullUrl) {
-      const startMs = Date.now();
-      const fetchResponse = await fetch(currentPath, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-        },
-        signal: AbortSignal.timeout(10000),
-      });
-      const { rateLimitRemaining, requestCost, latencyMs } =
-        recordResponseTelemetry(fetchResponse, startMs);
-
-      if (!fetchResponse.ok) {
-        const pathOnly = new URL(currentPath).pathname.replace('/api/v1', '');
-        response = await canvasRequest<T[]>(pathOnly, { ...options, params });
-        allData.push(...response.data);
-        break;
-      }
-
-      const data = (await fetchResponse.json()) as T[];
-      const pagination = parseLinkHeader(fetchResponse.headers.get('Link'));
-      response = { data, pagination, rateLimitRemaining, requestCost, latencyMs, httpStatus: fetchResponse.status };
-    } else {
-      response = await canvasRequest<T[]>(currentPath, { ...options, params });
+    if (Array.isArray(response.data)) {
+      allData.push(...response.data);
     }
 
-    allData.push(...response.data);
-
-    if (response.pagination.next) {
-      currentPath = response.pagination.next;
-      isFullUrl = true;
+    if (response.pagination.next && response.pagination.next !== currentTarget) {
+      currentTarget = response.pagination.next;
+      isFirstPage = false;
     } else {
-      currentPath = null;
+      currentTarget = null;
     }
 
     if (response.rateLimitRemaining !== undefined && response.rateLimitRemaining < 50) {

@@ -290,14 +290,20 @@ export function TaskDetailDrawer({ task, onClose }: TaskDetailDrawerProps) {
 
         {/* Footer actions */}
         {task.url && task.url.startsWith('https://') && (
-          <div className="sticky bottom-0 bg-[var(--color-surface)]/95 backdrop-blur-md border-t border-[var(--color-border)] p-4 flex gap-3">
+          <div className="sticky bottom-0 bg-[var(--color-surface)]/95 backdrop-blur-md border-t border-[var(--color-border)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] flex gap-3">
             <a
               href={task.url}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-sm font-semibold shadow-md shadow-indigo-500/25 transition-all duration-150 active:scale-98"
             >
-              <span>{isCompletedOrSubmitted ? 'Open Quiz on Canvas' : 'Complete on Canvas'}</span>
+              <span>
+                {isCompletedOrSubmitted
+                  ? task.sourceType === 'quiz'
+                    ? 'Open Quiz on Canvas'
+                    : 'Open Assignment on Canvas'
+                  : 'Complete on Canvas'}
+              </span>
               <ExternalLinkIcon className="w-4 h-4" />
             </a>
           </div>

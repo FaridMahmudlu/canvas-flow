@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
     const typeFilter = searchParams.get('type');
     const search = searchParams.get('search');
     const semester = searchParams.get('semester');
+    const includeDesc = searchParams.get('includeDescription') === 'true';
 
     // Build where clause with strict user scoping and input sanitization
     const where: Record<string, unknown> = {
@@ -145,7 +146,7 @@ export async function GET(request: NextRequest) {
         courseCode: task.course.code,
         courseSemester: task.course.semester,
         title: task.title,
-        description: task.description,
+        description: includeDesc ? task.description : null,
         url: task.htmlUrl,
         availableAt: task.availableAt ? task.availableAt.toISOString() : null,
         dueAt: task.dueAt ? task.dueAt.toISOString() : null,

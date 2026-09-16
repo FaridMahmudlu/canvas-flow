@@ -20,6 +20,7 @@ model User {
   passwordHash String?
   avatarUrl    String?
   role         String   @default("student")
+  timezone     String   @default("Europe/Budapest")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -30,7 +31,7 @@ model User {
   notificationPreferences NotificationPreference?
   pushSubscriptions       PushSubscription[]
   syncRuns                SyncRun[]
-  syncStates              SyncState[]
+  syncState               SyncState?
 
   @@index([email])
 }
@@ -61,8 +62,8 @@ model CanvasConnection {
 
 model Course {
   id             String    @id @default(cuid())
-  userId         String?
-  user           User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   canvasCourseId Int
   name           String
   code           String?
@@ -85,8 +86,8 @@ model Course {
 
 model Task {
   id              String    @id @default(cuid())
-  userId          String?
-  user            User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   canvasTaskId    String
   courseId        String
   course          Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
@@ -138,8 +139,8 @@ model Task {
 
 model Notification {
   id             String    @id @default(cuid())
-  userId         String?
-  user           User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   taskId         String
   task           Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   type           String    // "available" | "24h" | "6h" | "1h" | "overdue" | "new_task" | "changed"
@@ -196,8 +197,8 @@ model PushSubscription {
 
 model SyncRun {
   id                     String    @id @default(cuid())
-  userId                 String?
-  user                   User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                 String
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   status                 String    // "running" | "completed" | "failed" | "rate_limited" | "skipped"
   startedAt              DateTime  @default(now())
   completedAt            DateTime?
@@ -225,9 +226,9 @@ model SyncRun {
 // ─── Sync State (Adaptive Controller) ──────────────────────────────────
 
 model SyncState {
-  id                      String    @id @default("global")
-  userId                  String?   @unique
-  user                    User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                      String    @id @default(cuid())
+  userId                  String    @unique
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   targetIntervalSeconds   Int       @default(60)
   currentIntervalSeconds  Int       @default(60)
   consecutiveSuccesses    Int       @default(0)
@@ -241,4 +242,6 @@ model SyncState {
   avgDetectionLatencyMs   Int?
   worstDetectionLatencyMs Int?
   updatedAt               DateTime  @updatedAt
+
+  @@index([userId])
 }

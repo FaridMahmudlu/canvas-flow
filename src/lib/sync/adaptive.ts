@@ -39,17 +39,17 @@ export interface CanSyncResult {
 }
 
 /**
- * Fetch or initialize the singleton global SyncState record.
+ * Fetch or initialize the user-scoped SyncState record.
  */
-export async function getOrCreateSyncState() {
+export async function getOrCreateSyncState(userId: string) {
   let state = await prisma.syncState.findUnique({
-    where: { id: 'global' },
+    where: { userId },
   });
 
   if (!state) {
     state = await prisma.syncState.create({
       data: {
-        id: 'global',
+        userId,
         targetIntervalSeconds: TARGET_INTERVAL_SECONDS,
         currentIntervalSeconds: TARGET_INTERVAL_SECONDS,
         consecutiveSuccesses: 0,
@@ -61,10 +61,10 @@ export async function getOrCreateSyncState() {
 }
 
 /**
- * Check whether a sync is allowed to run right now or if it must back off.
+ * Check whether a sync is allowed to run right now for this specific user.
  */
-export async function canInitiateSync(now: Date = new Date()): Promise<CanSyncResult> {
-  const state = await getOrCreateSyncState();
+export async function canInitiateSync(userId: string, now: Date = new Date()): Promise<CanSyncResult> {
+  const state = await getOrCreateSyncState(userId);
 
   if (state.backoffUntil && state.backoffUntil.getTime() > now.getTime()) {
     const backoffRemainingSec = Math.ceil(
@@ -179,13 +179,14 @@ export function calculateNextInterval(options: {
  * Record a successful sync cycle and adaptively adjust controller telemetry.
  */
 export async function recordAdaptiveSyncSuccess(params: {
+  userId: string;
   rateLimitRemaining?: number | null;
   requestCost?: number | null;
   detectionLatencyMs?: number | null;
   now?: Date;
 }) {
   const now = params.now || new Date();
-  const state = await getOrCreateSyncState();
+  const state = await getOrCreateSyncState(params.userId);
 
   const consecutive = state.consecutiveSuccesses + 1;
   const evaluation = calculateNextInterval({
@@ -212,7 +213,7 @@ export async function recordAdaptiveSyncSuccess(params: {
   }
 
   const updated = await prisma.syncState.update({
-    where: { id: 'global' },
+    where: { userId: params.userId },
     data: {
       currentIntervalSeconds: evaluation.currentIntervalSeconds,
       targetIntervalSeconds: TARGET_INTERVAL_SECONDS,
@@ -229,6 +230,7 @@ export async function recordAdaptiveSyncSuccess(params: {
   });
 
   logger.info('Adaptive sync controller updated state', {
+    userId: params.userId,
     interval: updated.currentIntervalSeconds,
     rateLimitRemaining: updated.lastRateLimitRemaining,
     consecutiveSuccesses: consecutive,
@@ -241,6 +243,7 @@ export async function recordAdaptiveSyncSuccess(params: {
  * Record a rate-limited (HTTP 429) or failed sync cycle and activate backoff.
  */
 export async function recordAdaptiveSyncFailure(params: {
+  userId: string;
   is429: boolean;
   retryAfterSec?: number | null;
   errorType?: string;
@@ -248,7 +251,7 @@ export async function recordAdaptiveSyncFailure(params: {
   now?: Date;
 }) {
   const now = params.now || new Date();
-  const state = await getOrCreateSyncState();
+  const state = await getOrCreateSyncState(params.userId);
 
   const evaluation = calculateNextInterval({
     currentInterval: state.currentIntervalSeconds,
@@ -258,7 +261,7 @@ export async function recordAdaptiveSyncFailure(params: {
   });
 
   const updated = await prisma.syncState.update({
-    where: { id: 'global' },
+    where: { userId: params.userId },
     data: {
       currentIntervalSeconds: evaluation.currentIntervalSeconds,
       consecutiveSuccesses: 0,
@@ -269,6 +272,7 @@ export async function recordAdaptiveSyncFailure(params: {
   });
 
   logger.warn('Adaptive sync controller activated backoff', {
+    userId: params.userId,
     is429: params.is429,
     backoffSeconds: evaluation.backoffSeconds,
     backoffUntil: evaluation.backoffUntil?.toISOString(),

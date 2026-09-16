@@ -31,6 +31,23 @@ interface CanvasConnection {
   updatedAt: string;
 }
 
+const POPULAR_TIMEZONES = [
+  { value: 'Europe/Budapest', label: 'Europe/Budapest (CET/CEST, Central Europe)' },
+  { value: 'Europe/London', label: 'Europe/London (GMT/BST, UK)' },
+  { value: 'Europe/Berlin', label: 'Europe/Berlin (CET/CEST, Germany)' },
+  { value: 'Europe/Paris', label: 'Europe/Paris (CET/CEST, France)' },
+  { value: 'Europe/Istanbul', label: 'Europe/Istanbul (TRT, Turkey)' },
+  { value: 'Asia/Baku', label: 'Asia/Baku (AZT, UTC+4, Azerbaijan)' },
+  { value: 'Asia/Dubai', label: 'Asia/Dubai (GST, UTC+4, UAE)' },
+  { value: 'Asia/Tokyo', label: 'Asia/Tokyo (JST, UTC+9, Japan)' },
+  { value: 'Asia/Singapore', label: 'Asia/Singapore (SGT, UTC+8)' },
+  { value: 'America/New_York', label: 'America/New_York (US Eastern)' },
+  { value: 'America/Chicago', label: 'America/Chicago (US Central)' },
+  { value: 'America/Denver', label: 'America/Denver (US Mountain)' },
+  { value: 'America/Los_Angeles', label: 'America/Los_Angeles (US Pacific)' },
+  { value: 'UTC', label: 'UTC (Coordinated Universal Time)' },
+];
+
 export default function SettingsPage() {
   const { data: session } = useSession();
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -58,12 +75,21 @@ export default function SettingsPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
+  const [timezone, setTimezone] = useState('Europe/Budapest');
+  const [savingTimezone, setSavingTimezone] = useState(false);
+  const [timezoneSuccess, setTimezoneSuccess] = useState(false);
+  const [exportingData, setExportingData] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
+  const [deletingAccount, setDeletingAccount] = useState(false);
+
   const loadPreferences = useCallback(async () => {
     try {
       setLoading(true);
-      const [prefRes, connRes] = await Promise.all([
+      const [prefRes, connRes, meRes] = await Promise.all([
         fetch('/api/notification-preferences'),
         fetch('/api/canvas/connect'),
+        fetch('/api/me'),
       ]);
 
       if (prefRes.ok) {
@@ -87,6 +113,13 @@ export default function SettingsPage() {
       if (connRes.ok) {
         const connData = await connRes.json();
         setConnections(connData.connections || []);
+      }
+
+      if (meRes.ok) {
+        const meData = await meRes.json();
+        if (meData.user?.timezone) {
+          setTimezone(meData.user.timezone);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -199,6 +232,78 @@ export default function SettingsPage() {
       }
     } catch (err) {
       console.error('Error disconnecting Canvas:', err);
+    }
+  };
+
+  const handleSaveTimezone = async (newTz: string) => {
+    setTimezone(newTz);
+    setSavingTimezone(true);
+    setTimezoneSuccess(false);
+    try {
+      const res = await fetch('/api/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timezone: newTz }),
+      });
+      if (res.ok) {
+        setTimezoneSuccess(true);
+        setTimeout(() => setTimezoneSuccess(false), 3000);
+      }
+    } catch (err) {
+      console.error('Failed to update timezone:', err);
+    } finally {
+      setSavingTimezone(false);
+    }
+  };
+
+  const handleAutoDetectTimezone = () => {
+    try {
+      const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (detected) {
+        handleSaveTimezone(detected);
+      }
+    } catch (err) {
+      console.error('Failed to detect timezone:', err);
+    }
+  };
+
+  const handleExportData = async () => {
+    setExportingData(true);
+    try {
+      const res = await fetch('/api/me/export');
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `canvasflow-academic-export-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Export error:', err);
+      setStatusMessage('Failed to export academic data.');
+    } finally {
+      setExportingData(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmationText !== 'DELETE') return;
+    setDeletingAccount(true);
+    try {
+      const res = await fetch('/api/me', { method: 'DELETE' });
+      if (res.ok) {
+        await signOut({ callbackUrl: '/login' });
+      } else {
+        alert('Failed to delete account. Please try again.');
+      }
+    } catch (err) {
+      console.error('Account deletion error:', err);
+      alert('Network error while deleting account.');
+    } finally {
+      setDeletingAccount(false);
     }
   };
 
@@ -443,8 +548,147 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
+
+          {/* Academic Timezone */}
+          <div className="p-6 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-base font-semibold text-[var(--color-text)]">Academic Timezone</h2>
+                <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
+                  Used for deadline countdowns and scheduling notifications accurately
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleAutoDetectTimezone}
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] text-[var(--color-text)] transition self-start sm:self-auto cursor-pointer"
+              >
+                Auto-detect Device Timezone
+              </button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <select
+                value={timezone}
+                onChange={(e) => handleSaveTimezone(e.target.value)}
+                disabled={savingTimezone}
+                className="flex-1 px-3.5 py-2 text-xs rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {POPULAR_TIMEZONES.map((tz) => (
+                  <option key={tz.value} value={tz.value}>
+                    {tz.label}
+                  </option>
+                ))}
+                {!POPULAR_TIMEZONES.some((tz) => tz.value === timezone) && (
+                  <option value={timezone}>{timezone} (Custom)</option>
+                )}
+              </select>
+              {timezoneSuccess && (
+                <span className="text-xs font-semibold text-emerald-400 self-center">
+                  Timezone saved!
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Data Portability */}
+          <div className="p-6 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-[var(--color-text)]">Data Portability & Export</h2>
+                <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
+                  Download a complete, sanitized JSON copy of your synced courses, tasks, and deadlines.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleExportData}
+                disabled={exportingData}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-[var(--color-surface-hover)] hover:bg-[var(--color-border)] text-[var(--color-text)] border border-[var(--color-border)] transition flex items-center gap-2 self-start sm:self-auto cursor-pointer"
+              >
+                <svg className="w-4 h-4 text-[var(--color-text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                <span>{exportingData ? 'Exporting...' : 'Export Academic Data (JSON)'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Danger Zone */}
+          <div className="p-6 rounded-2xl bg-rose-500/5 border border-rose-500/20 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-rose-500">Danger Zone</h2>
+                <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
+                  Permanently delete your CanvasFlow account, encrypted credentials, courses, and tasks.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteConfirmationText('');
+                  setShowDeleteModal(true);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition self-start sm:self-auto cursor-pointer"
+              >
+                Delete Account
+              </button>
+            </div>
+          </div>
         </div>
       </main>
+
+      {/* Delete Account Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="max-w-md w-full p-6 rounded-2xl bg-[var(--color-surface)] border border-rose-500/30 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 font-bold">
+                ⚠️
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-[var(--color-text)]">Delete Account Permanently</h3>
+                <p className="text-xs text-rose-400">This action is irreversible</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed">
+              All of your personal data, including encrypted Canvas access tokens, connected courses, tasks, sync runs, and push subscriptions will be immediately purged from our servers.
+            </p>
+
+            <div>
+              <label className="block text-xs font-medium text-[var(--color-text)] mb-1">
+                Type <span className="font-mono font-bold text-rose-400">DELETE</span> to confirm:
+              </label>
+              <input
+                type="text"
+                value={deleteConfirmationText}
+                onChange={(e) => setDeleteConfirmationText(e.target.value)}
+                placeholder="DELETE"
+                className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] font-mono focus:outline-none focus:ring-2 focus:ring-rose-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                disabled={deleteConfirmationText !== 'DELETE' || deletingAccount}
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white transition cursor-pointer"
+              >
+                {deletingAccount ? 'Deleting...' : 'Permanently Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <MobileNav activePage="settings" />
     </div>

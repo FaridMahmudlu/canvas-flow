@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-helpers';
 import { prisma } from '@/lib/db';
 import { encryptToken } from '@/lib/crypto';
+import { validateCanvasUrl } from '@/lib/security/ssrf';
 
 export async function GET(req: NextRequest) {
   const authRes = await requireAuth();
@@ -51,11 +52,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Normalize instance URL
-    instanceUrl = instanceUrl.trim().replace(/\/+$/, '');
-    if (!instanceUrl.startsWith('http://') && !instanceUrl.startsWith('https://')) {
-      instanceUrl = `https://${instanceUrl}`;
+    // Strictly validate against SSRF and parse canonical URL
+    const urlValidation = await validateCanvasUrl(instanceUrl);
+    if (!urlValidation.valid || !urlValidation.normalizedUrl) {
+      return NextResponse.json(
+        { error: urlValidation.error || 'Invalid Canvas instance URL.' },
+        { status: 400 }
+      );
     }
+
+    instanceUrl = urlValidation.normalizedUrl;
     accessToken = accessToken.trim();
 
     // Verify token by calling Canvas API /api/v1/users/self

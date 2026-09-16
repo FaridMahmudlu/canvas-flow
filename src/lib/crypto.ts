@@ -4,7 +4,15 @@ const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12; // Standard 96-bit IV for GCM
 
 function getEncryptionKey(): Buffer {
-  const secret = process.env.ENCRYPTION_KEY || process.env.AUTH_SECRET || 'canvasflow-default-secret-change-in-prod-32b';
+  const secret = process.env.ENCRYPTION_KEY || process.env.AUTH_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'CRITICAL: ENCRYPTION_KEY or AUTH_SECRET environment variable is required in production',
+      );
+    }
+    return crypto.createHash('sha256').update('canvasflow-default-secret-dev-only-32b').digest();
+  }
   // Always derive a 32-byte key via SHA-256 to ensure exact key length
   if (/^[0-9a-fA-F]{64}$/.test(secret)) {
     return Buffer.from(secret, 'hex');

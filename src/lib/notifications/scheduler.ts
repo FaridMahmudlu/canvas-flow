@@ -19,12 +19,23 @@ export interface SchedulerResult {
 }
 
 /**
- * Checks if current time is within user's configured quiet hours.
+ * Checks if current time is within user's configured quiet hours using their timezone.
  */
-function isQuietHours(now: Date, startStr?: string | null, endStr?: string | null): boolean {
+export function isQuietHours(
+  now: Date,
+  startStr?: string | null,
+  endStr?: string | null,
+  userTimezone: string = 'Europe/Budapest',
+): boolean {
   if (!startStr || !endStr) return false;
 
-  const zonedNow = toZonedTime(now, 'Europe/Budapest');
+  let zonedNow: Date;
+  try {
+    zonedNow = toZonedTime(now, userTimezone);
+  } catch {
+    zonedNow = toZonedTime(now, 'Europe/Budapest');
+  }
+
   const [startHour, startMin] = startStr.split(':').map(Number);
   const [endHour, endMin] = endStr.split(':').map(Number);
 
@@ -75,7 +86,7 @@ export async function scheduleReminders(now: Date = new Date(), userId?: string)
   }
 
   const toCreate: Array<{
-    userId?: string | null;
+    userId: string;
     taskId: string;
     type: string;
     scheduledFor: Date;
@@ -101,7 +112,8 @@ export async function scheduleReminders(now: Date = new Date(), userId?: string)
   for (const task of activeTasks) {
     if (!task.dueAt) continue;
     const dueTime = task.dueAt.getTime();
-    const taskOwnerId = task.userId || userId || null;
+    const taskOwnerId = task.userId || userId;
+    if (!taskOwnerId) continue;
 
     // 24 hours before
     if (config.before24h) {
@@ -200,9 +212,11 @@ export async function scheduleReminders(now: Date = new Date(), userId?: string)
     for (const task of newlyAvailableTasks) {
       if (!task.availableAt) continue;
       const key = `${task.id}_available_${task.availableAt.getTime()}`;
+      const taskOwnerId = task.userId || userId;
+      if (!taskOwnerId) continue;
       if (!existingKeys.has(key)) {
         toCreate.push({
-          userId: task.userId || userId || null,
+          userId: taskOwnerId,
           taskId: task.id,
           type: 'available',
           scheduledFor: task.availableAt,
@@ -233,10 +247,24 @@ export async function scheduleReminders(now: Date = new Date(), userId?: string)
 export async function processDueNotifications(now: Date = new Date(), userId?: string): Promise<SchedulerResult> {
   const scheduled = await scheduleReminders(now, userId);
 
-  const pref = await prisma.notificationPreference.findFirst({
-    where: userId ? { userId } : undefined,
-  });
-  const inQuiet = isQuietHours(now, pref?.quietHoursStart, pref?.quietHoursEnd);
+  const [pref, dbUser] = await Promise.all([
+    prisma.notificationPreference.findFirst({
+      where: userId ? { userId } : undefined,
+    }),
+    userId
+      ? prisma.user.findUnique({
+          where: { id: userId },
+          select: { timezone: true },
+        })
+      : null,
+  ]);
+
+  const inQuiet = isQuietHours(
+    now,
+    pref?.quietHoursStart,
+    pref?.quietHoursEnd,
+    dbUser?.timezone || 'Europe/Budapest',
+  );
 
   if (inQuiet) {
     logger.info('Quiet hours active: holding pending reminders', {

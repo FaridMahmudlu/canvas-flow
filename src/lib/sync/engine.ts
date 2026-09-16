@@ -55,64 +55,6 @@ export interface SyncResult {
   backoffRemainingSec?: number;
 }
 
-/**
- * Automatically migrate legacy environment CANVAS_TOKEN into CanvasConnection
- * records for active users if no database connections exist yet.
- */
-async function autoMigrateLegacyConnection(): Promise<void> {
-  const token = process.env.CANVAS_TOKEN?.trim();
-  if (!token) return;
-
-  const baseUrl = (process.env.CANVAS_BASE_URL || 'https://canvas.elte.hu').replace(/\/+$/, '');
-
-  try {
-    const { encrypted, iv, tag } = encryptToken(token);
-
-    // Find users who should be linked to this connection
-    const targetUsers = await prisma.user.findMany({
-      where: {
-        OR: [
-          { email: 'fariddmahmudlu2008@gmail.com' },
-          { email: 'farid@canvasflow.app' },
-          { courses: { some: {} } },
-        ],
-      },
-      select: { id: true, email: true, name: true },
-    });
-
-    for (const user of targetUsers) {
-      // Never overwrite an existing connection configured by the user
-      const existingConn = await prisma.canvasConnection.findFirst({
-        where: { userId: user.id },
-      });
-      if (existingConn) {
-        continue;
-      }
-
-      await prisma.canvasConnection.create({
-        data: {
-          userId: user.id,
-          instanceUrl: baseUrl,
-          instanceName: 'ELTE Canvas',
-          encryptedToken: encrypted,
-          tokenIv: iv,
-          tokenTag: tag,
-          canvasUserId: 344666,
-          canvasUserName: user.name || 'Mahmudlu Farid (SEK2L3)',
-          isActive: true,
-          lastVerifiedAt: new Date(),
-        },
-      });
-      logger.info('Auto-migrated legacy Canvas token to CanvasConnection', {
-        userId: user.id,
-        email: user.email,
-      });
-    }
-  } catch (err) {
-    logger.error('Failed to auto-migrate legacy Canvas connection', { error: String(err) });
-  }
-}
-
 // ─── Main Entrypoint ───────────────────────────────────────────────────
 
 /**
@@ -131,8 +73,8 @@ export async function syncAll(
     return syncSingleUser(userId, triggeredBy, startTime);
   }
 
-  // Cron / Multi-user execution: Find all users with active Canvas connections
-  let connections = await prisma.canvasConnection.findMany({
+  // Multi-user cron execution: Find all users with active Canvas connections
+  const connections = await prisma.canvasConnection.findMany({
     where: { isActive: true },
     select: {
       id: true,
@@ -145,34 +87,7 @@ export async function syncAll(
     orderBy: { updatedAt: 'asc' }, // Fair round-robin: least recently updated first
   });
 
-  if (connections.length === 0 && process.env.CANVAS_TOKEN) {
-    await autoMigrateLegacyConnection();
-    connections = await prisma.canvasConnection.findMany({
-      where: { isActive: true },
-      select: {
-        id: true,
-        userId: true,
-        instanceUrl: true,
-        encryptedToken: true,
-        tokenIv: true,
-        tokenTag: true,
-      },
-      orderBy: { updatedAt: 'asc' },
-    });
-  }
-
   if (connections.length === 0) {
-    // Fallback: check if single-user environment variables exist (legacy / local dev)
-    if (process.env.CANVAS_TOKEN) {
-      const userWithCourses = await prisma.user.findFirst({
-        where: { courses: { some: {} } },
-      });
-      const primaryUser = userWithCourses || (await prisma.user.findFirst());
-      if (primaryUser) {
-        return syncSingleUser(primaryUser.id, triggeredBy, startTime);
-      }
-    }
-
     return {
       success: true,
       coursesCount: 0,
@@ -238,7 +153,7 @@ async function syncSingleUser(
   const now = new Date();
 
   // 1. Adaptive Rate-Limit Check
-  const canSync = await canInitiateSync(now);
+  const canSync = await canInitiateSync(userId, now);
   if (!canSync.allowed) {
     logger.warn('Adaptive Controller held sync cycle: backoff active', {
       userId,
@@ -333,7 +248,7 @@ async function syncSingleUser(
     };
   }
 
-  const syncState = await getOrCreateSyncState();
+  const syncState = await getOrCreateSyncState(userId);
 
   const syncRun = await prisma.syncRun.create({
     data: {
@@ -434,6 +349,7 @@ async function syncSingleUser(
     }
 
     const updatedState = await recordAdaptiveSyncSuccess({
+      userId,
       rateLimitRemaining: telemetry.lastRateLimitRemaining,
       requestCost: telemetry.lastRequestCost,
       detectionLatencyMs: cycleDetectionLatencyMs,
@@ -504,6 +420,7 @@ async function syncSingleUser(
             : 'network';
 
     await recordAdaptiveSyncFailure({
+      userId,
       is429,
       retryAfterSec: telemetry.lastRetryAfter,
       now,
@@ -1206,7 +1123,7 @@ async function recalculateUserTaskStatuses(userId: string, now: Date = new Date(
 // ─── Notification Helper ───────────────────────────────────────────────
 
 async function createNotificationIfNeeded(
-  userId: string | null,
+  userId: string,
   taskId: string,
   type: string,
   scheduledFor: Date,
@@ -1236,9 +1153,13 @@ export async function getLastSyncInfo(userId?: string) {
     orderBy: { startedAt: 'desc' },
   });
 
-  const syncState = await prisma.syncState.findUnique({
-    where: { id: 'global' },
-  });
+  const syncState = userId
+    ? await prisma.syncState.findUnique({
+        where: { userId },
+      })
+    : await prisma.syncState.findFirst({
+        orderBy: { updatedAt: 'desc' },
+      });
 
   const recentRuns = await prisma.syncRun.findMany({
     where: userId ? { userId } : undefined,

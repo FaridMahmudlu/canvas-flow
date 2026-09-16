@@ -24,7 +24,7 @@ const mobileItems = [
 
 export function MobileNav({ activePage }: MobileNavProps) {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[var(--color-surface)]/95 backdrop-blur-lg border-t border-[var(--color-border)] md:hidden px-2 py-1.5 shadow-lg">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[var(--color-surface)]/95 backdrop-blur-lg border-t border-[var(--color-border)] md:hidden px-2 pt-2 pb-[max(0.625rem,env(safe-area-inset-bottom))] shadow-lg">
       <div className="flex items-center justify-around">
         {mobileItems.map((item) => {
           const isActive = activePage === item.id;

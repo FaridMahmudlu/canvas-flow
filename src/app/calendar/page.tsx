@@ -45,6 +45,7 @@ export default function CalendarPage() {
   );
   const [selectedTask, setSelectedTask] = useState<TaskData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<'month' | 'agenda'>('month');
 
   const fetchCalendar = useCallback(async () => {
     try {
@@ -173,11 +174,35 @@ export default function CalendarPage() {
             <div>
               <h1 className="text-2xl font-bold text-[var(--color-text)]">Academic Calendar</h1>
               <p className="text-sm text-[var(--color-text-secondary)] mt-1">
-                Deadlines and schedules synced from ELTE Canvas
+                Deadlines and schedules synced from your Canvas account
               </p>
             </div>
 
-            <div className="flex items-center space-x-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* View mode toggle */}
+              <div className="flex items-center bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-0.5 shadow-sm">
+                <button
+                  onClick={() => setViewMode('month')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                    viewMode === 'month'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)]'
+                  }`}
+                >
+                  Month
+                </button>
+                <button
+                  onClick={() => setViewMode('agenda')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                    viewMode === 'agenda'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)]'
+                  }`}
+                >
+                  Agenda
+                </button>
+              </div>
+
               <button
                 onClick={handleToday}
                 className="px-3.5 py-1.5 text-sm font-medium rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] transition-colors shadow-sm"
@@ -210,17 +235,114 @@ export default function CalendarPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            {/* Main Calendar Grid */}
-            <div className="lg:col-span-3 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-sm overflow-hidden">
-              {/* Day Headers */}
-              <div className="grid grid-cols-7 border-b border-[var(--color-border)] bg-[var(--color-bg)]">
-                {DAYS_OF_WEEK.map((day) => (
-                  <div key={day} className="py-2.5 text-center text-xs font-semibold text-[var(--color-text-secondary)]">
-                    {day}
-                  </div>
-                ))}
+          {viewMode === 'agenda' ? (
+            <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-4 sm:p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-6 pb-4 border-b border-[var(--color-border)]">
+                <div>
+                  <h2 className="text-base font-bold text-[var(--color-text)]">
+                    Monthly Academic Agenda
+                  </h2>
+                  <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
+                    Chronological schedule of assignments and quizzes for {MONTH_NAMES[currentMonth - 1]} {currentYear}
+                  </p>
+                </div>
               </div>
+
+              {loading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="h-20 rounded-xl bg-[var(--color-surface-hover)] animate-pulse" />
+                  ))}
+                </div>
+              ) : Object.keys(itemsByDate).length === 0 ? (
+                <div className="text-center py-16 text-[var(--color-text-tertiary)]">
+                  <p className="text-sm font-semibold">No deadlines or events found for this month.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {Object.entries(itemsByDate)
+                    .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
+                    .map(([dateStr, tasks]) => {
+                      if (!tasks || tasks.length === 0) return null;
+                      const dateObj = new Date(`${dateStr}T12:00:00`);
+                      const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                      const isToday =
+                        dateStr ===
+                        `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+                      return (
+                        <div key={dateStr} className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
+                                isToday
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'bg-[var(--color-surface-hover)] text-[var(--color-text)] border border-[var(--color-border)]'
+                              }`}
+                            >
+                              {dayName}
+                            </span>
+                            <span className="text-xs text-[var(--color-text-tertiary)]">
+                              {tasks.length} deadline{tasks.length === 1 ? '' : 's'}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {tasks.map((task) => (
+                              <div
+                                key={task.id}
+                                onClick={() => handleTaskClick(task.id)}
+                                className="p-3.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] hover:border-indigo-500/50 transition-all cursor-pointer shadow-xs group"
+                              >
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 truncate max-w-[180px]">
+                                    {task.course.name}
+                                  </span>
+                                  <span
+                                    className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                                      task.status === 'overdue'
+                                        ? 'bg-red-500/10 text-red-600 border border-red-500/20'
+                                        : task.isSubmitted
+                                        ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20'
+                                        : 'bg-indigo-500/10 text-indigo-600 border border-indigo-500/20'
+                                    }`}
+                                  >
+                                    {task.status}
+                                  </span>
+                                </div>
+                                <h3 className="text-sm font-semibold text-[var(--color-text)] group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors line-clamp-2">
+                                  {task.title}
+                                </h3>
+                                {task.dueAt && (
+                                  <p className="text-xs text-[var(--color-text-tertiary)] mt-2 flex items-center gap-1">
+                                    <span>Due at</span>
+                                    <span className="font-semibold text-[var(--color-text-secondary)]">
+                                      {new Date(task.dueAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              {/* Main Calendar Grid */}
+              <div className="lg:col-span-3 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-sm overflow-x-auto">
+                <div className="min-w-[640px] lg:min-w-0">
+                  {/* Day Headers */}
+                  <div className="grid grid-cols-7 border-b border-[var(--color-border)] bg-[var(--color-bg)]">
+                    {DAYS_OF_WEEK.map((day) => (
+                      <div key={day} className="py-2.5 text-center text-xs font-semibold text-[var(--color-text-secondary)]">
+                        {day}
+                      </div>
+                    ))}
+                  </div>
 
               {/* Day Cells */}
               <div className="grid grid-cols-7 divide-x divide-y divide-[var(--color-border)]">
@@ -294,6 +416,7 @@ export default function CalendarPage() {
                 })}
               </div>
             </div>
+          </div>
 
             {/* Sidebar: Details for Selected Date */}
             <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-5 shadow-sm flex flex-col h-full">
@@ -356,6 +479,7 @@ export default function CalendarPage() {
               )}
             </div>
           </div>
+        )}
         </div>
       </main>
 
