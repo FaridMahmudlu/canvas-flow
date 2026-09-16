@@ -28,7 +28,7 @@ import type {
   CanvasQuizSubmission,
 } from '@/lib/canvas/types';
 import { computeTaskStatus, isTaskLocked } from '@/lib/tasks/availability';
-import { extractSemester } from '@/lib/semester';
+import { extractSemester, sortSemesters } from '@/lib/semester';
 import { logger } from '@/lib/logger';
 import { processDueNotifications } from '@/lib/notifications/scheduler';
 import {
@@ -37,7 +37,7 @@ import {
   recordAdaptiveSyncFailure,
   getOrCreateSyncState,
 } from './adaptive';
-import { decryptToken } from '@/lib/crypto';
+import { decryptToken, encryptToken } from '@/lib/crypto';
 import { getUserCanvasContext } from '@/lib/auth-helpers';
 
 export interface SyncResult {
@@ -53,6 +53,70 @@ export interface SyncResult {
   detectionLatencyMs?: number | null;
   error?: string;
   backoffRemainingSec?: number;
+}
+
+/**
+ * Automatically migrate legacy environment CANVAS_TOKEN into CanvasConnection
+ * records for active users if no database connections exist yet.
+ */
+async function autoMigrateLegacyConnection(): Promise<void> {
+  const token = process.env.CANVAS_TOKEN?.trim();
+  if (!token) return;
+
+  const baseUrl = (process.env.CANVAS_BASE_URL || 'https://canvas.elte.hu').replace(/\/+$/, '');
+
+  try {
+    const { encrypted, iv, tag } = encryptToken(token);
+
+    // Find users who should be linked to this connection
+    const targetUsers = await prisma.user.findMany({
+      where: {
+        OR: [
+          { email: 'fariddmahmudlu2008@gmail.com' },
+          { email: 'farid@canvasflow.app' },
+          { courses: { some: {} } },
+        ],
+      },
+      select: { id: true, email: true, name: true },
+    });
+
+    for (const user of targetUsers) {
+      await prisma.canvasConnection.upsert({
+        where: {
+          userId_instanceUrl: {
+            userId: user.id,
+            instanceUrl: baseUrl,
+          },
+        },
+        create: {
+          userId: user.id,
+          instanceUrl: baseUrl,
+          instanceName: 'ELTE Canvas',
+          encryptedToken: encrypted,
+          tokenIv: iv,
+          tokenTag: tag,
+          canvasUserId: 344666,
+          canvasUserName: user.name || 'Mahmudlu Farid (SEK2L3)',
+          isActive: true,
+          lastVerifiedAt: new Date(),
+        },
+        update: {
+          instanceName: 'ELTE Canvas',
+          encryptedToken: encrypted,
+          tokenIv: iv,
+          tokenTag: tag,
+          isActive: true,
+          lastVerifiedAt: new Date(),
+        },
+      });
+      logger.info('Auto-migrated legacy Canvas token to CanvasConnection', {
+        userId: user.id,
+        email: user.email,
+      });
+    }
+  } catch (err) {
+    logger.error('Failed to auto-migrate legacy Canvas connection', { error: String(err) });
+  }
 }
 
 // ─── Main Entrypoint ───────────────────────────────────────────────────
@@ -74,7 +138,7 @@ export async function syncAll(
   }
 
   // Cron / Multi-user execution: Find all users with active Canvas connections
-  const connections = await prisma.canvasConnection.findMany({
+  let connections = await prisma.canvasConnection.findMany({
     where: { isActive: true },
     select: {
       id: true,
@@ -87,10 +151,29 @@ export async function syncAll(
     orderBy: { updatedAt: 'asc' }, // Fair round-robin: least recently updated first
   });
 
+  if (connections.length === 0 && process.env.CANVAS_TOKEN) {
+    await autoMigrateLegacyConnection();
+    connections = await prisma.canvasConnection.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        userId: true,
+        instanceUrl: true,
+        encryptedToken: true,
+        tokenIv: true,
+        tokenTag: true,
+      },
+      orderBy: { updatedAt: 'asc' },
+    });
+  }
+
   if (connections.length === 0) {
     // Fallback: check if single-user environment variables exist (legacy / local dev)
     if (process.env.CANVAS_TOKEN) {
-      const primaryUser = await prisma.user.findFirst();
+      const userWithCourses = await prisma.user.findFirst({
+        where: { courses: { some: {} } },
+      });
+      const primaryUser = userWithCourses || (await prisma.user.findFirst());
       if (primaryUser) {
         return syncSingleUser(primaryUser.id, triggeredBy, startTime);
       }
@@ -237,7 +320,7 @@ async function syncSingleUser(
     } else if (process.env.CANVAS_TOKEN) {
       // Dev / legacy fallback
       canvasContext = {
-        baseUrl: process.env.CANVAS_BASE_URL || 'https://canvas.instructure.com',
+        baseUrl: process.env.CANVAS_BASE_URL || 'https://canvas.elte.hu',
         token: process.env.CANVAS_TOKEN,
       };
     }
@@ -280,14 +363,51 @@ async function syncSingleUser(
     // Sync user profile
     await syncUserProfile(userId, canvasContext);
 
-    // Sync courses for this user
+    // Sync courses for this user (upserts all courses into DB for courses view)
     const courses = await syncCoursesForUser(userId, canvasContext);
     coursesCount = courses.length;
 
-    // Sync assignments and quizzes in batches of 4 courses
-    const BATCH_SIZE = 4;
-    for (let i = 0; i < courses.length; i += BATCH_SIZE) {
-      const batch = courses.slice(i, i + BATCH_SIZE);
+    // Filter courses for near-real-time content synchronization:
+    // Prioritize currently active academic semester courses (or available courses).
+    const detectedSemesters = courses
+      .map((c) => c.semester)
+      .filter((s): s is string => Boolean(s));
+
+    let coursesToSync = courses;
+    if (detectedSemesters.length > 0) {
+      const sorted = sortSemesters(Array.from(new Set(detectedSemesters)));
+      const latestSemester = sorted[0];
+      coursesToSync = courses.filter((c) => {
+        if (c.workflowState !== 'available') return false;
+        return !c.semester || c.semester === latestSemester;
+      });
+    } else {
+      coursesToSync = courses.filter((c) => c.workflowState === 'available');
+    }
+
+    // Also include any course that has NEVER been synced yet (initial course sync) up to 2 courses per cycle
+    const uninitializedCourses = courses.filter(
+      (c) => !coursesToSync.some((sc) => sc.id === c.id) && c.lastSyncedAt === null,
+    );
+    if (uninitializedCourses.length > 0) {
+      coursesToSync.push(...uninitializedCourses.slice(0, 2));
+    }
+
+    // Sync assignments and quizzes in batches of 6 courses with time-budget safety guard
+    const MAX_SYNC_CYCLE_MS = 40000; // 40s safety threshold to prevent Vercel 60s hard timeout
+    const BATCH_SIZE = 6;
+    for (let i = 0; i < coursesToSync.length; i += BATCH_SIZE) {
+      if (Date.now() - startTime > MAX_SYNC_CYCLE_MS) {
+        logger.warn('Sync cycle approaching serverless time budget; safely wrapping up cycle', {
+          userId,
+          processedCourses: i,
+          totalCourses: coursesToSync.length,
+          elapsedMs: Date.now() - startTime,
+        });
+        break;
+      }
+
+      const batch = coursesToSync.slice(i, i + BATCH_SIZE);
       const results = await Promise.all(
         batch.map((course) =>
           syncCourseContentForUser(userId, course.id, course.canvasCourseId, detectedLatencies, canvasContext),
@@ -542,6 +662,37 @@ async function syncCourseContentForUser(
     }
   }
 
+  // Pre-fetch direct quiz submissions in parallel for quizzes that require it
+  const quizzesNeedingSubmissions = quizzes.filter(
+    (quiz) =>
+      !assignmentMap.has(quiz.id) &&
+      quiz.published &&
+      !quiz.locked_for_user &&
+      !existingMap.get(`quiz_${quiz.id}`)?.isSubmitted &&
+      (quiz.points_possible || 0) > 0,
+  );
+
+  const directSubmissionsMap = new Map<number, CanvasQuizSubmission>();
+  if (quizzesNeedingSubmissions.length > 0) {
+    const subResults = await Promise.all(
+      quizzesNeedingSubmissions.map(async (quiz) => {
+        try {
+          const subs = await getQuizSubmissions(canvasCourseId, quiz.id, context);
+          if (subs.length > 0) {
+            const latest = subs.sort((a, b) => (b.attempt || 0) - (a.attempt || 0))[0];
+            if (latest) return { quizId: quiz.id, sub: latest };
+          }
+        } catch {
+          // Fallback silently
+        }
+        return { quizId: quiz.id, sub: undefined };
+      }),
+    );
+    for (const r of subResults) {
+      if (r.sub) directSubmissionsMap.set(r.quizId, r.sub);
+    }
+  }
+
   for (const quiz of quizzes) {
     const canvasTaskId = `quiz_${quiz.id}`;
     activeCanvasTaskIds.add(canvasTaskId);
@@ -562,32 +713,11 @@ async function syncCourseContentForUser(
         workflow_state: asub.workflow_state,
         finished_at: asub.submitted_at || null,
       };
+    } else if (directSubmissionsMap.has(quiz.id)) {
+      quizSubmission = directSubmissionsMap.get(quiz.id);
     }
 
     const existing = existingMap.get(canvasTaskId) || null;
-
-    if (
-      !matchingAssignment &&
-      !quizSubmission &&
-      quiz.published &&
-      !quiz.locked_for_user &&
-      (!existing || !existing.isSubmitted) &&
-      (quiz.points_possible || 0) > 0
-    ) {
-      try {
-        const directSubmissions = await getQuizSubmissions(canvasCourseId, quiz.id, context);
-        if (directSubmissions.length > 0) {
-          const latest = directSubmissions.sort(
-            (a, b) => (b.attempt || 0) - (a.attempt || 0),
-          )[0];
-          if (latest) {
-            quizSubmission = latest;
-          }
-        }
-      } catch {
-        // Fallback silently
-      }
-    }
 
     const result = await upsertQuizForUser(
       userId,

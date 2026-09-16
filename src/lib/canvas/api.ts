@@ -6,7 +6,7 @@
  */
 
 import { canvasRequest, canvasPaginatedRequest, type CanvasContext } from './client';
-import { extractSemester } from '../semester';
+import { extractSemester, sortSemesters } from '../semester';
 import type {
   CanvasUser,
   CanvasCourse,
@@ -47,11 +47,39 @@ export async function getCourses(context?: CanvasContext | null): Promise<Canvas
 }
 
 /**
- * Fetch courses filtered to active courses.
+ * Fetch courses filtered to active courses for near-real-time synchronization.
+ * Prioritizes the latest active academic semester.
  */
 export async function getActiveCourses(context?: CanvasContext | null): Promise<CanvasCourse[]> {
   const allCourses = await getCourses(context);
-  return allCourses;
+
+  const detectedSemesters = allCourses
+    .map((c) => extractSemester(c.course_code, c.name))
+    .filter((s): s is string => Boolean(s));
+
+  if (detectedSemesters.length > 0) {
+    const sorted = sortSemesters(Array.from(new Set(detectedSemesters)));
+    const latestSemester = sorted[0]; // e.g. "2026/27/1"
+
+    const active = allCourses.filter((c) => {
+      if (c.workflow_state !== 'available') return false;
+      const sem = extractSemester(c.course_code, c.name);
+      return !sem || sem === latestSemester;
+    });
+
+    if (active.length > 0) {
+      return active;
+    }
+  }
+
+  // Fallback: filter out concluded or past courses
+  return allCourses.filter((c) => {
+    if (c.workflow_state !== 'available') return false;
+    if (c.end_at && new Date(c.end_at).getTime() < Date.now() - 30 * 24 * 60 * 60 * 1000) {
+      return false;
+    }
+    return true;
+  });
 }
 
 // ─── Assignments ───────────────────────────────────────────────────────
