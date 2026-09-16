@@ -7,6 +7,11 @@ export const metadata: Metadata = {
   description:
     'Your academic command center. Real-time Canvas LMS synchronization, deadline detection, and push notifications for students.',
   keywords: ['canvas', 'lms', 'academic', 'tasks', 'deadlines', 'assignments', 'student', 'productivity'],
+  icons: {
+    icon: '/favicon.svg',
+    shortcut: '/favicon.svg',
+    apple: '/favicon.svg',
+  },
 };
 
 export default function RootLayout({

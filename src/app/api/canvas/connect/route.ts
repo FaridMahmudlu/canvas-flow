@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-helpers';
 import { prisma } from '@/lib/db';
 import { encryptToken } from '@/lib/crypto';
-import { syncAll } from '@/lib/sync/engine';
 
 export async function GET(req: NextRequest) {
   const authRes = await requireAuth();
@@ -147,14 +146,6 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Fire background initial sync for this user
-    try {
-      syncAll('manual', user.id).catch((err) => {
-        console.error('Initial background sync error:', err);
-      });
-    } catch (syncErr) {
-      console.error('Error triggering initial sync:', syncErr);
-    }
 
     return NextResponse.json({
       success: true,

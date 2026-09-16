@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="cf-bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1E1B4B" />
+      <stop offset="0.5" stop-color="#0F172A" />
+      <stop offset="1" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="cf-glow" x1="16" y1="12" x2="48" y2="52" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38BDF8" stop-opacity="0.8" />
+      <stop offset="0.5" stop-color="#6366F1" stop-opacity="0.9" />
+      <stop offset="1" stop-color="#A855F7" stop-opacity="0.8" />
+    </linearGradient>
+    <linearGradient id="cf-accent" x1="20" y1="20" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#60A5FA" />
+      <stop offset="1" stop-color="#818CF8" />
+    </linearGradient>
+    <linearGradient id="cf-gold" x1="38" y1="16" x2="46" y2="24" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FDE047" />
+      <stop offset="1" stop-color="#F59E0B" />
+    </linearGradient>
+    <filter id="cf-shadow" x="8" y="8" width="48" height="48" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#4F46E5" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Base Squircle Background -->
+  <rect x="2" y="2" width="60" height="60" rx="18" fill="url(#cf-bg)" stroke="url(#cf-glow)" stroke-width="1.5" />
+  
+  <!-- Subtle Internal Glow Grid -->
+  <rect x="3" y="3" width="58" height="58" rx="17" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="1" />
+
+  <!-- Exclusive Geometric Flow Emblem -->
+  <g filter="url(#cf-shadow)">
+    <!-- Interlocking Kinetic Shield & Academic Flow -->
+    <path d="M32 12L47 18.5V31.5C47 41 40.5 49 32 52C23.5 49 17 41 17 31.5V18.5L32 12Z" 
+          stroke="url(#cf-glow)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+    
+    <!-- Central Dynamic Flow "F" & Academic Mortarboard Horizon -->
+    <path d="M32 19L41 23.5L32 28L23 23.5L32 19Z" 
+          fill="url(#cf-accent)" fill-opacity="0.4" stroke="url(#cf-glow)" stroke-width="2" stroke-linejoin="round" />
+    
+    <!-- Flow Infinity Waves -->
+    <path d="M24 33C26.5 31.5 29.5 32 32 34C34.5 32 37.5 31.5 40 33V38.5C37.5 37 34.5 37.5 32 39.5C29.5 37.5 26.5 37 24 38.5V33Z" 
+          fill="url(#cf-glow)" fill-opacity="0.3" stroke="url(#cf-glow)" stroke-width="1.8" stroke-linejoin="round" />
+    
+    <!-- Golden Intellect Spark Beacon -->
+    <circle cx="32" cy="43.5" r="2" fill="url(#cf-gold)" />
+  </g>
+</svg>
