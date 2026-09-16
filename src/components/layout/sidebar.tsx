@@ -8,6 +8,8 @@ import {
   GraduationCapIcon,
   QuizTabletIcon,
   ScoreMedalIcon,
+  GitHubIcon,
+  ExternalLinkIcon,
 } from '@/components/ui/icons';
 
 interface SidebarProps {
@@ -59,6 +61,37 @@ export function Sidebar({ open, onToggle, activePage }: SidebarProps) {
             );
           })}
         </nav>
+
+        {/* Developer & GitHub Repository Link */}
+        <div className="px-3 py-2 border-t border-[var(--color-border)]">
+          <a
+            href="https://github.com/FaridMahmudlu/canvas-flow"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Developer: Farid Mahmudlu • CanvasFlow GitHub Repository"
+            aria-label="View CanvasFlow repository on GitHub by developer Farid Mahmudlu"
+            className={`flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] border border-transparent hover:border-[var(--color-border)] transition-all group ${
+              open ? 'justify-between' : 'justify-center'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <GitHubIcon className="w-4 h-4 text-[var(--color-text-tertiary)] group-hover:text-indigo-400 transition-colors flex-shrink-0" />
+              {open && (
+                <div className="min-w-0 flex flex-col text-left">
+                  <span className="font-semibold truncate text-[var(--color-text)] leading-tight">
+                    GitHub Project
+                  </span>
+                  <span className="text-[10px] text-indigo-400 truncate">
+                    dev: Farid Mahmudlu
+                  </span>
+                </div>
+              )}
+            </div>
+            {open && (
+              <ExternalLinkIcon className="w-3 h-3 text-[var(--color-text-tertiary)] group-hover:text-indigo-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+            )}
+          </a>
+        </div>
 
         {/* Toggle */}
         <button

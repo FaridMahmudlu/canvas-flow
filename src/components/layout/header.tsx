@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
 import { formatSyncAge } from '@/lib/dates';
 import { Logo } from '@/components/brand/logo';
-import { SyncOrbitIcon } from '@/components/ui/icons';
+import { SyncOrbitIcon, GitHubIcon, ExternalLinkIcon } from '@/components/ui/icons';
 
 interface HeaderProps {
   lastSynced: string | null;
@@ -43,11 +43,38 @@ export function Header({ lastSynced, syncing, onSync }: HeaderProps) {
         </div>
         <div className="hidden md:block" />
 
-        {/* Right — Sync controls & User Account */}
-        <div className="flex items-center gap-3">
+        {/* Right — Developer GitHub, Sync controls & User Account */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* GitHub Developer & Repository Badge */}
+          <a
+            href="https://github.com/FaridMahmudlu/canvas-flow"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="CanvasFlow GitHub Repository • Created by Developer Farid Mahmudlu"
+            aria-label="View CanvasFlow GitHub Repository by developer Farid Mahmudlu"
+            className="group relative flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] border border-[var(--color-border)] hover:border-indigo-500/40 text-[var(--color-text)] transition-all duration-200 shadow-2xs hover:shadow-md hover:shadow-indigo-500/10 cursor-pointer"
+          >
+            <GitHubIcon className="w-4 h-4 text-[var(--color-text-secondary)] group-hover:text-white transition-colors flex-shrink-0" />
+
+            <div className="hidden sm:flex items-center gap-1.5 min-w-0">
+              <span className="font-semibold tracking-tight text-[var(--color-text)] group-hover:text-indigo-400 transition-colors">
+                GitHub
+              </span>
+              <span className="text-[10px] text-[var(--color-text-tertiary)]">•</span>
+              <span className="text-[11px] text-[var(--color-text-secondary)] font-medium truncate">
+                <span className="text-[9.5px] text-indigo-400 font-bold uppercase tracking-wider mr-1 px-1 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20">
+                  Dev
+                </span>
+                Farid Mahmudlu
+              </span>
+            </div>
+
+            <ExternalLinkIcon className="w-3 h-3 text-[var(--color-text-tertiary)] group-hover:text-indigo-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all flex-shrink-0" />
+          </a>
+
           {/* Sync age with active indicator */}
           {lastSynced && (
-            <div className="hidden sm:flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
+            <div className="hidden md:flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20 animate-pulse" />
               <span>Synced {formatSyncAge(lastSynced)}</span>
             </div>
@@ -115,6 +142,25 @@ export function Header({ lastSynced, syncing, onSync }: HeaderProps) {
                   </svg>
                   <span>Notification Settings</span>
                 </Link>
+
+                <div className="border-t border-slate-800/80 my-1" />
+
+                <a
+                  href="https://github.com/FaridMahmudlu/canvas-flow"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setDropdownOpen(false)}
+                  className="flex items-center justify-between px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800/60 transition group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <GitHubIcon className="w-4 h-4 text-slate-400 group-hover:text-white transition-colors flex-shrink-0" />
+                    <div>
+                      <p className="font-medium text-white leading-tight">GitHub Repository</p>
+                      <p className="text-[10px] text-indigo-400 font-medium">Developer: Farid Mahmudlu</p>
+                    </div>
+                  </div>
+                  <ExternalLinkIcon className="w-3.5 h-3.5 text-slate-500 group-hover:text-indigo-400 transition-colors flex-shrink-0" />
+                </a>
 
                 <div className="border-t border-slate-800/80 my-1" />
 
